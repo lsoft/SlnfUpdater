@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SlnfUpdater": {
+      "commandName": "Project",
+      "commandLineArgs": "\"..\\..\\..\\..\\Test\" \"*.slnf\""
+    }
+  }
+}
