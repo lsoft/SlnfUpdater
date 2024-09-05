@@ -1,6 +1,9 @@
 ﻿using Microsoft.Build.Definition;
+using Microsoft.Build.Evaluation;
 using Microsoft.Build.Locator;
+using Pastel;
 using SlnfUpdater.Helper;
+using System.Drawing;
 using System.Runtime;
 
 namespace SlnfUpdater
@@ -9,56 +12,67 @@ namespace SlnfUpdater
     {
         static void Main(string[] args)
         {
+            var before = DateTime.Now;
+
             MSBuildLocator.RegisterDefaults();
 
-            var slnfFolder = Path.GetFullPath(args[0]);
+            var slnfFolderPath = Path.GetFullPath(args[0]);
             var slnfFileMask = args[1];
 
-            if (!Directory.Exists(slnfFolder))
+            if (!Directory.Exists(slnfFolderPath))
             {
-                Console.WriteLine($"Folder {slnfFolder} does not exist.");
+                Console.WriteLine($"Folder {slnfFolderPath} does not exist.");
                 return;
             }
 
-            Console.WriteLine($"Found folder {slnfFolder}");
+            Console.WriteLine($"Found folder {slnfFolderPath}");
 
-            var slnfFiles = Directory.GetFiles(slnfFolder, slnfFileMask, SearchOption.TopDirectoryOnly)
+            var slnfFiles = Directory.GetFiles(slnfFolderPath, slnfFileMask, SearchOption.TopDirectoryOnly)
                 .Select(f => new FileInfo(f).Name)
                 .ToList();
             if (slnfFiles.Count == 0)
             {
-                Console.WriteLine($"Folder {slnfFolder} does not contains a slnf files.");
+                Console.WriteLine($"Folder {slnfFolderPath} does not contains a slnf files.");
                 return;
             }
 
-            Console.WriteLine("Found slnf files:");
+            Console.WriteLine($"Found {slnfFiles.Count} slnf files:");
 
             foreach (var slnfFile in slnfFiles)
             {
-                Console.WriteLine($"    {slnfFile}");
+                Console.WriteLine($"    {slnfFile.Pastel(Color.FromArgb(165, 229, 250))}");
             }
 
-
-            foreach (var slnfFile in slnfFiles)
+            var processedCount = 0;
+            //foreach (var slnfFile in slnfFiles)
+            Parallel.ForEach(slnfFiles, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, slnfFileName =>
             {
-                ProcessSlnfFile(
-                    slnfFolder,
-                    slnfFile
+                var slnfFilePath = Path.Combine(slnfFolderPath, slnfFileName);
+
+                Console.WriteLine($"Processing {slnfFilePath.Pastel(Color.FromArgb(165, 229, 250))}...");
+
+                var result = ProcessSlnfFile(
+                    slnfFilePath
                     );
-            }
 
-            Console.WriteLine("Finished.");
+                Interlocked.Increment(ref processedCount);
+
+                Console.WriteLine($"""
+({processedCount}/{slnfFiles.Count}) Finished {slnfFilePath.Pastel(Color.FromArgb(165, 229, 250))}.
+{result}
+""");
+
+            }
+            );
+
+            var after = DateTime.Now;
+            Console.WriteLine($"Finished (taken {(after - before).ToString().Pastel(Color.FromArgb(220, 110, 0))}).");
         }
 
-        private static void ProcessSlnfFile(
-            string slnfFolderPath,
-            string slnfFileName
+        private static string ProcessSlnfFile(
+            string slnfFilePath
             )
         {
-            var slnfFilePath = Path.Combine(slnfFolderPath, slnfFileName);
-
-            Console.WriteLine($"Processing {slnfFilePath}...");
-
             var slnFile = Microsoft.Build.Construction.SolutionFile.Parse(
                 slnfFilePath
                 );
@@ -95,56 +109,51 @@ namespace SlnfUpdater
                     );
             }
 
-            if (context.AddedReferences.Count > 0)
+            if (context.AddedReferences.Count <= 0)
             {
-                Console.WriteLine(
-                    "New references:"
-                    );
+                return $"   No new references found.".Pastel(Color.FromArgb(255, 255, 0));
+            }
 
-                Console.WriteLine(
-                    string.Join(
-                        Environment.NewLine,
-                        context.AddedReferences.Select(r => "    " + r)
-                        )
-                    );
+            var slnfBody = File.ReadAllLines(context.SlnfFilePath).ToList();
+            var si = slnfBody.FindIndex(p => p.EndsWith("["));
+            var ei = slnfBody.FindIndex(p => p.EndsWith("]"));
 
-                var slnfBody = File.ReadAllLines(context.SlnfFilePath).ToList();
-                var si = slnfBody.FindIndex(p => p.EndsWith("["));
-                var ei = slnfBody.FindIndex(p => p.EndsWith("]"));
+            slnfBody.RemoveRange(si + 1, ei - si - 1);
 
-                slnfBody.RemoveRange(si + 1, ei - si - 1);
+            var addedReferencesWithSort = context.GetSortedProjects();
+            for (var i = 0; i < addedReferencesWithSort.Count; i++)
+            {
+                var addedReferenceWithSort = addedReferencesWithSort[i]
+                    .Replace("\\", "\\\\");
+                var last = i == 0; //the last has zero index because of descending sorting!
 
-                var addedReferencesWithSort = context.GetSortedProjects();
-                for (var i = 0; i < addedReferencesWithSort.Count; i++)
+                if (last)
                 {
-                    var addedReferenceWithSort = addedReferencesWithSort[i]
-                        .Replace("\\", "\\\\");
-                    var last = i == 0; //because of descending sorting!
-
-                    if (last)
-                    {
-                        slnfBody.Insert(si + 1, $"      \"{addedReferenceWithSort}\"");
-                    }
-                    else
-                    {
-                        slnfBody.Insert(si + 1, $"      \"{addedReferenceWithSort}\",");
-                    }
+                    slnfBody.Insert(si + 1, $"      \"{addedReferenceWithSort}\"");
                 }
+                else
+                {
+                    slnfBody.Insert(si + 1, $"      \"{addedReferenceWithSort}\",");
+                }
+            }
 
-                File.WriteAllText(
-                    context.SlnfFilePath,
-                    string.Join(
-                        Environment.NewLine,
-                        slnfBody
-                        )
-                    );
-            }
-            else
-            {
-                Console.WriteLine(
-                    "No new references found."
-                    );
-            }
+            File.WriteAllText(
+                context.SlnfFilePath,
+                string.Join(
+                    Environment.NewLine,
+                    slnfBody
+                    )
+                );
+
+            var newReferences = string.Join(
+                Environment.NewLine,
+                context.AddedReferences.Select(r => "      " + r)
+                ).Pastel(Color.FromArgb(0, 255, 0));
+
+            return $"""
+   New references:
+{newReferences}
+""";
         }
 
         private static void ProcessProjectFromSlnf(
@@ -164,20 +173,10 @@ namespace SlnfUpdater
             var projectFilePath = projectFileInfo.FullName;
             var projectFolderPath = projectFileInfo.Directory.FullName;
 
-            var projectXmlRoot = Microsoft.Build.Construction.ProjectRootElement.Open(
+            List<ProjectItem> projectReferences = ProvideProjectReferences(
                 projectFilePath
                 );
 
-            var evaluatedProject = Microsoft.Build.Evaluation.Project.FromProjectRootElement(
-                projectXmlRoot,
-                new Microsoft.Build.Definition.ProjectOptions { }
-                );
-
-            using var evaluatedProjectWrapper = new EvaluationProjectWrapper(evaluatedProject);
-
-            var projectReferences = evaluatedProjectWrapper.Project.AllEvaluatedItems
-                .Where(p => p.ItemType == "ProjectReference")
-                .ToList();
             foreach (var projectReference in projectReferences)
             {
                 var referenceProjectPathRelativeCurrentProject = projectReference.EvaluatedInclude;
@@ -201,6 +200,41 @@ namespace SlnfUpdater
                     context,
                     new FileInfo(referenceProjectFullPath)
                     );
+            }
+        }
+
+        private static List<ProjectItem> ProvideProjectReferences(
+            string projectFilePath
+            )
+        {
+            var projectXmlRoot = Microsoft.Build.Construction.ProjectRootElement.Open(
+                projectFilePath
+                );
+
+            using (var projectCollection = new Microsoft.Build.Evaluation.ProjectCollection())
+            {
+                Microsoft.Build.Evaluation.Project? evaluatedProject = null;
+                try
+                {
+                    evaluatedProject = Microsoft.Build.Evaluation.Project.FromProjectRootElement(
+                        projectXmlRoot,
+                        new Microsoft.Build.Definition.ProjectOptions
+                        {
+                            ProjectCollection = projectCollection
+                        }
+                        );
+
+                    return evaluatedProject.AllEvaluatedItems
+                        .Where(p => p.ItemType == "ProjectReference")
+                        .ToList();
+                }
+                finally
+                {
+                    if (evaluatedProject is not null)
+                    {
+                        projectCollection.UnloadProject(evaluatedProject);
+                    }
+                }
             }
         }
     }
