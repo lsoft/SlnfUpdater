@@ -10,6 +10,11 @@ namespace SlnfUpdater
 {
     internal class Program
     {
+        private static System.Drawing.Color SolutionProjectColor = Color.FromArgb(165, 229, 250);
+        private static System.Drawing.Color TimeColor = Color.FromArgb(220, 110, 0);
+        private static System.Drawing.Color NoReferenceColor = Color.FromArgb(255, 255, 0);
+        private static System.Drawing.Color NewReferenceColor = Color.FromArgb(0, 255, 0);
+
         static void Main(string[] args)
         {
             var before = DateTime.Now;
@@ -40,7 +45,7 @@ namespace SlnfUpdater
 
             foreach (var slnfFile in slnfFiles)
             {
-                Console.WriteLine($"    {slnfFile.Pastel(Color.FromArgb(165, 229, 250))}");
+                Console.WriteLine($"    {slnfFile.Pastel(SolutionProjectColor)}");
             }
 
             var processedCount = 0;
@@ -49,7 +54,7 @@ namespace SlnfUpdater
             {
                 var slnfFilePath = Path.Combine(slnfFolderPath, slnfFileName);
 
-                Console.WriteLine($"Processing {slnfFilePath.Pastel(Color.FromArgb(165, 229, 250))}...");
+                Console.WriteLine($"Processing {slnfFilePath.Pastel(SolutionProjectColor)}...");
 
                 var result = ProcessSlnfFile(
                     slnfFilePath
@@ -58,7 +63,7 @@ namespace SlnfUpdater
                 Interlocked.Increment(ref processedCount);
 
                 Console.WriteLine($"""
-({processedCount}/{slnfFiles.Count}) Finished {slnfFilePath.Pastel(Color.FromArgb(165, 229, 250))}.
+({processedCount}/{slnfFiles.Count}) Finished {slnfFilePath.Pastel(SolutionProjectColor)}.
 {result}
 """);
 
@@ -66,7 +71,7 @@ namespace SlnfUpdater
             );
 
             var after = DateTime.Now;
-            Console.WriteLine($"Finished (taken {(after - before).ToString().Pastel(Color.FromArgb(220, 110, 0))}).");
+            Console.WriteLine($"Finished (taken {(after - before).ToString().Pastel(TimeColor)}).");
         }
 
         private static string ProcessSlnfFile(
@@ -111,7 +116,7 @@ namespace SlnfUpdater
 
             if (context.AddedReferences.Count <= 0)
             {
-                return $"   No new references found.".Pastel(Color.FromArgb(255, 255, 0));
+                return $"   No new references found.".Pastel(NoReferenceColor);
             }
 
             var slnfBody = File.ReadAllLines(context.SlnfFilePath).ToList();
@@ -148,7 +153,7 @@ namespace SlnfUpdater
             var newReferences = string.Join(
                 Environment.NewLine,
                 context.AddedReferences.Select(r => "      " + r)
-                ).Pastel(Color.FromArgb(0, 255, 0));
+                ).Pastel(NewReferenceColor);
 
             return $"""
    New references:
