@@ -12,6 +12,11 @@
     <PackageReference Include="Microsoft.Build" Version="17.11.4" />
     <PackageReference Include="Microsoft.Build.Locator" Version="1.7.8" />
     <PackageReference Include="Pastel" Version="5.1.0" />
+    <PackageReference Include="System.Formats.Asn1" Version="8.0.1" />
   </ItemGroup>
 
+  <!--
+    <PackageReference Include="Microsoft.Build.Runtime" Version="17.11.4" />
+  -->
+  
 </Project>

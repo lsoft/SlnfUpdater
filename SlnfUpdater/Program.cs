@@ -2,9 +2,12 @@
 using Microsoft.Build.Evaluation;
 using Microsoft.Build.Locator;
 using Pastel;
+using SlnfUpdater.FileStructure;
 using SlnfUpdater.Helper;
 using System.Drawing;
 using System.Runtime;
+using System.Text;
+using System.Text.Json;
 
 namespace SlnfUpdater
 {
@@ -13,12 +16,14 @@ namespace SlnfUpdater
         private static System.Drawing.Color SolutionProjectColor = Color.FromArgb(165, 229, 250);
         private static System.Drawing.Color TimeColor = Color.FromArgb(220, 110, 0);
         private static System.Drawing.Color NoReferenceColor = Color.FromArgb(255, 255, 0);
-        private static System.Drawing.Color NewReferenceColor = Color.FromArgb(0, 255, 0);
+        private static System.Drawing.Color AddedReferenceColor = Color.FromArgb(0, 255, 0);
+        private static System.Drawing.Color DeletedReferenceColor = Color.FromArgb(220, 80, 0);
 
         static void Main(string[] args)
         {
             var before = DateTime.Now;
 
+            //MSBuildLocator.RegisterMSBuildPath(".");
             MSBuildLocator.RegisterDefaults();
 
             var slnfFolderPath = Path.GetFullPath(args[0]);
@@ -52,18 +57,19 @@ namespace SlnfUpdater
             //foreach (var slnfFile in slnfFiles)
             Parallel.ForEach(slnfFiles, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, slnfFileName =>
             {
-                var slnfFilePath = Path.Combine(slnfFolderPath, slnfFileName);
+                var slnfFullFilePath = Path.Combine(slnfFolderPath, slnfFileName);
 
-                Console.WriteLine($"Processing {slnfFilePath.Pastel(SolutionProjectColor)}...");
+                Console.WriteLine($"Processing {slnfFullFilePath.Pastel(SolutionProjectColor)}...");
 
                 var result = ProcessSlnfFile(
-                    slnfFilePath
+                    slnfFolderPath,
+                    slnfFullFilePath
                     );
 
                 Interlocked.Increment(ref processedCount);
 
                 Console.WriteLine($"""
-({processedCount}/{slnfFiles.Count}) Finished {slnfFilePath.Pastel(SolutionProjectColor)}.
+({processedCount}/{slnfFiles.Count}) Finished {slnfFullFilePath.Pastel(SolutionProjectColor)}.
 {result}
 """);
 
@@ -75,37 +81,52 @@ namespace SlnfUpdater
         }
 
         private static string ProcessSlnfFile(
-            string slnfFilePath
+            string slnfFolderPath,
+            string slnfFullFilePath
             )
         {
-            var slnFile = Microsoft.Build.Construction.SolutionFile.Parse(
-                slnfFilePath
-                );
+            var structuredJson = new SlnfJsonStructured(slnfFolderPath, slnfFullFilePath);
 
-            //TODO: https://github.com/dotnet/msbuild/issues/9981
-            var slnfProjectsRelativeSlnField = slnFile.GetType().GetField("_solutionFilter", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var slnfProjectsRelativeSln = (IReadOnlySet<string>)slnfProjectsRelativeSlnField.GetValue(slnFile);
+            var context = structuredJson.BuildSearchReferenceContext();
 
-            var slnFullPathProperty = slnFile.GetType().GetProperty("FullPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var slnFullPath = (string)slnFullPathProperty.GetValue(slnFile);
+            if (structuredJson.CleanupFromLostProjects(context))
+            {
+                structuredJson.Serialize();
 
-            var context = new SearchReferenceContext(
-                slnFullPath,
-                slnfFilePath,
-                slnFile,
-                slnfProjectsRelativeSln
-                );
+                //reread because ot changes applied
+                structuredJson = new SlnfJsonStructured(slnfFolderPath, slnfFullFilePath);
+            }
+
+
+            //var slnFile = Microsoft.Build.Construction.SolutionFile.Parse(
+            //    slnfFullFilePath
+            //    );
+
+            ////TODO: https://github.com/dotnet/msbuild/issues/9981
+            //var slnfProjectsRelativeSlnField = slnFile.GetType().GetField("_solutionFilter", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            //var slnfProjectsRelativeSln = (IReadOnlySet<string>)slnfProjectsRelativeSlnField.GetValue(slnFile);
+
+            //var slnFullPathProperty = slnFile.GetType().GetProperty("FullPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            //var slnFullPath = (string)slnFullPathProperty.GetValue(slnFile);
+
+            //var context = new SearchReferenceContext(
+            //    slnFullPath,
+            //    slnfFullFilePath,
+            //    slnFile,
+            //    slnfProjectsRelativeSln
+            //    );
+
+
 
             //process any found projects for its reference, which must be added to slnf later
-            foreach (var slnfProjectRelativeSln in slnfProjectsRelativeSln)
+            foreach (var (_, projectFileFullPath) in structuredJson.EnumerateProjectPaths())
             {
-                var projectFilePath = Path.GetFullPath(
-                    Path.Combine(
-                        context.SlnfFolderPath,
-                        slnfProjectRelativeSln
-                        )
-                    );
-                var projectFileInfo = new FileInfo(projectFilePath);
+                var projectFileInfo = new FileInfo(projectFileFullPath);
+                if (!File.Exists(projectFileFullPath))
+                {
+                    throw new InvalidOperationException($"Non-existing project found: {projectFileFullPath}. Such project must be filtered before.");
+                }
+
                 var projectFolderPath = projectFileInfo.Directory.FullName;
 
                 ProcessProjectFromSlnf(
@@ -114,9 +135,9 @@ namespace SlnfUpdater
                     );
             }
 
-            if (context.AddedReferences.Count <= 0)
+            if (context.AddedReferences.Count == 0 && context.DeletedReferences.Count == 0)
             {
-                return $"   No new references found.".Pastel(NoReferenceColor);
+                return $"   No references changed.".Pastel(NoReferenceColor);
             }
 
             var slnfBody = File.ReadAllLines(context.SlnfFilePath).ToList();
@@ -128,8 +149,7 @@ namespace SlnfUpdater
             var addedReferencesWithSort = context.GetSortedProjects();
             for (var i = 0; i < addedReferencesWithSort.Count; i++)
             {
-                var addedReferenceWithSort = addedReferencesWithSort[i]
-                    .Replace("\\", "\\\\");
+                var addedReferenceWithSort = addedReferencesWithSort[i].Replace("\\", "\\\\");
                 var last = i == 0; //the last has zero index because of descending sorting!
 
                 if (last)
@@ -150,15 +170,34 @@ namespace SlnfUpdater
                     )
                 );
 
-            var newReferences = string.Join(
-                Environment.NewLine,
-                context.AddedReferences.Select(r => "      " + r)
-                ).Pastel(NewReferenceColor);
+            var resultMessage = new StringBuilder();
 
-            return $"""
-   New references:
-{newReferences}
-""";
+            if (context.AddedReferences.Count > 0)
+            {
+                var addedReferences = string.Join(
+                    Environment.NewLine,
+                    context.AddedReferences.Select(r => "      " + r)
+                    ).Pastel(AddedReferenceColor);
+
+                resultMessage.AppendLine($"""
+   Added references:
+{addedReferences}
+""");
+            }
+            if (context.DeletedReferences.Count > 0)
+            {
+                var deletedReferences = string.Join(
+                    Environment.NewLine,
+                    context.DeletedReferences.Select(r => "      " + r)
+                    ).Pastel(DeletedReferenceColor);
+
+                resultMessage.AppendLine($"""
+   Deleted references:
+{deletedReferences}
+""");
+            }
+
+            return resultMessage.ToString();
         }
 
         private static void ProcessProjectFromSlnf(

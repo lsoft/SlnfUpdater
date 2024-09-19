@@ -8,6 +8,7 @@ namespace SlnfUpdater
         private readonly HashSet<string> _processedReferences;
 
         private readonly HashSet<string> _addedReferences;
+        private readonly HashSet<string> _deletedReferences;
 
         public string SlnFullPath
         {
@@ -25,10 +26,6 @@ namespace SlnfUpdater
         {
             get;
         }
-        public SolutionFile SlnFile
-        {
-            get;
-        }
         public IReadOnlySet<string> ExistReferences
         {
             get;
@@ -36,25 +33,24 @@ namespace SlnfUpdater
 
         public IReadOnlySet<string> AddedReferences => _addedReferences;
 
+        public IReadOnlySet<string> DeletedReferences => _deletedReferences;
+
         public SearchReferenceContext(
             string slnFullPath,
             string slnfFilePath,
-            SolutionFile slnFile,
             IReadOnlySet<string> existReferences
             )
         {
-            //var slnFolderPath = new FileInfo(slnFullPath).Directory.FullName;
-
             SlnFullPath = slnFullPath;
             SlnfFilePath = slnfFilePath;
             var slnfFileInfo = new FileInfo(slnfFilePath);
             SlnfFileName = slnfFileInfo.Name;
             SlnfFolderPath = slnfFileInfo.Directory.FullName;
-            SlnFile = slnFile;
             ExistReferences = existReferences;
 
             _processedReferences = new HashSet<string>();
             _addedReferences = new HashSet<string>();
+            _deletedReferences = new HashSet<string>();
         }
 
         public bool IsProcessed(string addedReferenceFullPath)
@@ -79,6 +75,23 @@ namespace SlnfUpdater
             return false;
         }
 
+        public void DeleteReference(string deletedReferenceFullPath)
+        {
+            var referenceProjectPathRelativeSln = deletedReferenceFullPath.MakeRelativeAgainst(
+                SlnFullPath
+                );
+
+            _processedReferences.Add(referenceProjectPathRelativeSln);
+
+            if (!ExistReferences.Contains(referenceProjectPathRelativeSln))
+            {
+                return;
+            }
+
+            _deletedReferences.Add(referenceProjectPathRelativeSln);
+        }
+
+
         public void AddReferenceFullPathIfNew(string addedReferenceFullPath)
         {
             var referenceProjectPathRelativeSln = addedReferenceFullPath.MakeRelativeAgainst(
@@ -98,7 +111,7 @@ namespace SlnfUpdater
         public List<string> GetSortedProjects()
         {
             return AddedReferences
-                .Union(ExistReferences)
+                .Union(ExistReferences.Except(_deletedReferences))
                 .OrderByDescending(a => a, StringComparer.Ordinal)
                 .ToList()
                 ;
