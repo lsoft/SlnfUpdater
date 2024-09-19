@@ -1,14 +1,69 @@
 ﻿using Microsoft.Build.Construction;
+using Pastel;
+using SlnfUpdater.FileStructure;
 using SlnfUpdater.Helper;
+using System.Text;
 
 namespace SlnfUpdater
 {
-    public class SearchReferenceContext
+    public readonly struct Project2Paths : IEquatable<Project2Paths>
     {
-        private readonly HashSet<string> _processedReferences;
+        public readonly string FullPath;
+        public readonly string RelativeSlnPath;
 
-        private readonly HashSet<string> _addedReferences;
-        private readonly HashSet<string> _deletedReferences;
+        public Project2Paths(
+            string fullPath,
+            string relativeSlnPath
+            )
+        {
+            FullPath = fullPath;
+            RelativeSlnPath = relativeSlnPath;
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return obj is Project2Paths paths && Equals(paths);
+        }
+
+        public bool Equals(Project2Paths other)
+        {
+            return FullPath == other.FullPath &&
+                   RelativeSlnPath == other.RelativeSlnPath;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(FullPath, RelativeSlnPath);
+        }
+
+        public static bool operator ==(Project2Paths left, Project2Paths right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(Project2Paths left, Project2Paths right)
+        {
+            return !(left == right);
+        }
+
+        public static Project2Paths Create(
+            string fullPath,
+            string slnFullPath
+            )
+        {
+            return new Project2Paths(fullPath, fullPath.MakeRelativeAgainst(slnFullPath));
+        }
+
+    }
+
+    public sealed class SearchReferenceContext
+    {
+        private readonly HashSet<Project2Paths> _existReferences;
+
+        private readonly HashSet<Project2Paths> _processedReferences;
+
+        private readonly HashSet<Project2Paths> _addedReferences;
+        private readonly HashSet<Project2Paths> _deletedReferences;
 
         public string SlnFullPath
         {
@@ -26,19 +81,13 @@ namespace SlnfUpdater
         {
             get;
         }
-        public IReadOnlySet<string> ExistReferences
-        {
-            get;
-        }
 
-        public IReadOnlySet<string> AddedReferences => _addedReferences;
-
-        public IReadOnlySet<string> DeletedReferences => _deletedReferences;
+        public bool HasChanges => _addedReferences.Count > 0 || _deletedReferences.Count > 0;
 
         public SearchReferenceContext(
             string slnFullPath,
             string slnfFilePath,
-            IReadOnlySet<string> existReferences
+            IEnumerable<string> existReferences
             )
         {
             SlnFullPath = slnFullPath;
@@ -46,28 +95,39 @@ namespace SlnfUpdater
             var slnfFileInfo = new FileInfo(slnfFilePath);
             SlnfFileName = slnfFileInfo.Name;
             SlnfFolderPath = slnfFileInfo.Directory.FullName;
-            ExistReferences = existReferences;
-
-            _processedReferences = new HashSet<string>();
-            _addedReferences = new HashSet<string>();
-            _deletedReferences = new HashSet<string>();
+            
+            _existReferences = existReferences.Select(p => Create2PathsFrom(p)).ToHashSet();
+            _processedReferences = new HashSet<Project2Paths>();
+            _addedReferences = new HashSet<Project2Paths>();
+            _deletedReferences = new HashSet<Project2Paths>();
         }
 
-        public bool IsProcessed(string addedReferenceFullPath)
+        private Project2Paths Create2PathsFrom(
+            string fileFullPath
+            )
         {
-            var referenceProjectPathRelativeSln = addedReferenceFullPath.MakeRelativeAgainst(
-                SlnFullPath
-                );
+            return Project2Paths.Create(fileFullPath, SlnFullPath);
+        }
 
+        public bool IsProcessed(string checkedFullFilePath)
+        {
             //we must not check ExistReferences here
-            //because any existing reference may not include all its children in slnf
+            //because any existing reference may not include all its children in slnf,
+            //but we NEED to have all its children in slnf!
 
-            if (_processedReferences.Contains(referenceProjectPathRelativeSln))
+            var twoPaths = Create2PathsFrom(checkedFullFilePath);
+
+            if (_processedReferences.Contains(twoPaths))
             {
                 return true;
             }
 
-            if (AddedReferences.Contains(referenceProjectPathRelativeSln))
+            if (_addedReferences.Contains(twoPaths))
+            {
+                return true;
+            }
+
+            if (_deletedReferences.Contains(twoPaths))
             {
                 return true;
             }
@@ -77,44 +137,73 @@ namespace SlnfUpdater
 
         public void DeleteReference(string deletedReferenceFullPath)
         {
-            var referenceProjectPathRelativeSln = deletedReferenceFullPath.MakeRelativeAgainst(
-                SlnFullPath
-                );
+            var twoPaths = Create2PathsFrom(deletedReferenceFullPath);
+            
+            _processedReferences.Add(twoPaths);
 
-            _processedReferences.Add(referenceProjectPathRelativeSln);
-
-            if (!ExistReferences.Contains(referenceProjectPathRelativeSln))
+            if (!_existReferences.Contains(twoPaths))
             {
                 return;
             }
 
-            _deletedReferences.Add(referenceProjectPathRelativeSln);
+            _deletedReferences.Add(twoPaths);
         }
 
 
-        public void AddReferenceFullPathIfNew(string addedReferenceFullPath)
+        public void AddReferenceFullPathIfNew(string addedProjectFullPath)
         {
-            var referenceProjectPathRelativeSln = addedReferenceFullPath.MakeRelativeAgainst(
-                SlnFullPath
-                );
+            var twoPaths = Create2PathsFrom(addedProjectFullPath);
 
-            _processedReferences.Add(referenceProjectPathRelativeSln);
+            _processedReferences.Add(twoPaths);
 
-            if (ExistReferences.Contains(referenceProjectPathRelativeSln))
+            if (_existReferences.Contains(twoPaths))
             {
                 return;
             }
 
-            _addedReferences.Add(referenceProjectPathRelativeSln);
+            _addedReferences.Add(twoPaths);
         }
 
-        public List<string> GetSortedProjects()
+        public void ApplyChangesTo(SlnfJsonStructured structured)
         {
-            return AddedReferences
-                .Union(ExistReferences.Except(_deletedReferences))
-                .OrderByDescending(a => a, StringComparer.Ordinal)
-                .ToList()
-                ;
+            structured.JsonBody.solution.projects =
+                _addedReferences
+                    .Union(_existReferences.Except(_deletedReferences))
+                    .Select(twoPaths => twoPaths.RelativeSlnPath)
+                    .OrderBy(a => a, StringComparer.Ordinal)
+                    .ToArray()
+                    ;
+        }
+
+        public string BuildResultMessage()
+        {
+            var resultMessage = new StringBuilder();
+            if (_addedReferences.Count > 0)
+            {
+                var addedReferences = string.Join(
+                    Environment.NewLine,
+                    _addedReferences.Select(r => "      " + r.RelativeSlnPath)
+                    ).Pastel(Program.AddedReferenceColor);
+
+                resultMessage.AppendLine($"""
+   Added references:
+{addedReferences}
+""");
+            }
+            if (_deletedReferences.Count > 0)
+            {
+                var deletedReferences = string.Join(
+                    Environment.NewLine,
+                    _deletedReferences.Select(r => "      " + r.RelativeSlnPath)
+                    ).Pastel(Program.DeletedReferenceColor);
+
+                resultMessage.AppendLine($"""
+   Deleted references:
+{deletedReferences}
+""");
+            }
+
+            return resultMessage.ToString();
         }
     }
 }

@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace SlnfUpdater.FileStructure
 {
-    public class SlnfJsonStructured
+    public sealed class SlnfJsonStructured
     {
         private readonly string _slnfFileFullFolderPath;
         private readonly string _slnfFullFilePath;
@@ -28,37 +28,13 @@ namespace SlnfUpdater.FileStructure
             }
         }
 
-        public bool CleanupFromLostProjects(
-            SearchReferenceContext context
-            )
-        {
-            var clonedProjects = JsonBody.solution.projects.ToList();
-            foreach (var (projectFileRelativePath, projectFileFullPath) in EnumerateProjectPaths())
-            {
-                if (!File.Exists(projectFileFullPath))
-                {
-                    clonedProjects.Remove(projectFileRelativePath);
-                    context.DeleteReference(projectFileFullPath);
-                }
-            }
-
-            var changesExists = clonedProjects.Count < JsonBody.solution.projects.Length;
-
-            if (changesExists)
-            {
-                JsonBody.solution.projects = clonedProjects.ToArray();
-            }
-
-            return changesExists;
-        }
-
-        public IEnumerable<(string relative, string full)> EnumerateProjectPaths(
+        public IEnumerable<string> EnumerateProjectFullPaths(
             )
         {
             foreach (var projectFileRelativePath in JsonBody.solution.projects)
             {
                 var projectFileFullPath = Path.Combine(SlnFullFolderPath, projectFileRelativePath);
-                yield return (projectFileRelativePath, projectFileFullPath);
+                yield return projectFileFullPath;
             }
         }
 
@@ -67,17 +43,16 @@ namespace SlnfUpdater.FileStructure
             var context = new SearchReferenceContext(
                 SlnFullFilePath,
                 _slnfFullFilePath,
-                JsonBody.solution.projects.ToHashSet()
+                EnumerateProjectFullPaths()
                 );
 
             return context;
         }
 
-        public void Serialize()
+        public void SerializeToItsFile()
         {
-            JsonBody.Serialize(_slnfFullFilePath);
+            JsonBody.SerializeToFile(_slnfFullFilePath);
         }
-
     }
 
     public class SlnfJson
@@ -108,7 +83,7 @@ namespace SlnfUpdater.FileStructure
             }
         }
 
-        public void Serialize(
+        public void SerializeToFile(
             string slnfFullFilePath
             )
         {

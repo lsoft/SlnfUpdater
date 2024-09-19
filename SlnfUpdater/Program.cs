@@ -13,11 +13,11 @@ namespace SlnfUpdater
 {
     internal class Program
     {
-        private static System.Drawing.Color SolutionProjectColor = Color.FromArgb(165, 229, 250);
-        private static System.Drawing.Color TimeColor = Color.FromArgb(220, 110, 0);
-        private static System.Drawing.Color NoReferenceColor = Color.FromArgb(255, 255, 0);
-        private static System.Drawing.Color AddedReferenceColor = Color.FromArgb(0, 255, 0);
-        private static System.Drawing.Color DeletedReferenceColor = Color.FromArgb(220, 80, 0);
+        public static System.Drawing.Color SolutionProjectColor = Color.FromArgb(165, 229, 250);
+        public static System.Drawing.Color TimeColor = Color.FromArgb(220, 110, 0);
+        public static System.Drawing.Color NoReferenceColor = Color.FromArgb(255, 255, 0);
+        public static System.Drawing.Color AddedReferenceColor = Color.FromArgb(0, 255, 0);
+        public static System.Drawing.Color DeletedReferenceColor = Color.FromArgb(220, 80, 0);
 
         static void Main(string[] args)
         {
@@ -86,118 +86,36 @@ namespace SlnfUpdater
             )
         {
             var structuredJson = new SlnfJsonStructured(slnfFolderPath, slnfFullFilePath);
-
             var context = structuredJson.BuildSearchReferenceContext();
 
-            if (structuredJson.CleanupFromLostProjects(context))
-            {
-                structuredJson.Serialize();
-
-                //reread because ot changes applied
-                structuredJson = new SlnfJsonStructured(slnfFolderPath, slnfFullFilePath);
-            }
-
-
-            //var slnFile = Microsoft.Build.Construction.SolutionFile.Parse(
-            //    slnfFullFilePath
-            //    );
-
-            ////TODO: https://github.com/dotnet/msbuild/issues/9981
-            //var slnfProjectsRelativeSlnField = slnFile.GetType().GetField("_solutionFilter", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            //var slnfProjectsRelativeSln = (IReadOnlySet<string>)slnfProjectsRelativeSlnField.GetValue(slnFile);
-
-            //var slnFullPathProperty = slnFile.GetType().GetProperty("FullPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            //var slnFullPath = (string)slnFullPathProperty.GetValue(slnFile);
-
-            //var context = new SearchReferenceContext(
-            //    slnFullPath,
-            //    slnfFullFilePath,
-            //    slnFile,
-            //    slnfProjectsRelativeSln
-            //    );
-
-
-
-            //process any found projects for its reference, which must be added to slnf later
-            foreach (var (_, projectFileFullPath) in structuredJson.EnumerateProjectPaths())
+            //process any found projects for its reference, which must be added or deleted to/from slnf
+            foreach (var projectFileFullPath in structuredJson.EnumerateProjectFullPaths())
             {
                 var projectFileInfo = new FileInfo(projectFileFullPath);
                 if (!File.Exists(projectFileFullPath))
                 {
-                    throw new InvalidOperationException($"Non-existing project found: {projectFileFullPath}. Such project must be filtered before.");
+                    context.DeleteReference(projectFileFullPath);
                 }
+                else
+                {
+                    var projectFolderPath = projectFileInfo.Directory.FullName;
 
-                var projectFolderPath = projectFileInfo.Directory.FullName;
-
-                ProcessProjectFromSlnf(
-                    context,
-                    projectFileInfo
-                    );
+                    ProcessProjectFromSlnf(
+                        context,
+                        projectFileInfo
+                        );
+                }
             }
 
-            if (context.AddedReferences.Count == 0 && context.DeletedReferences.Count == 0)
+            if (!context.HasChanges)
             {
                 return $"   No references changed.".Pastel(NoReferenceColor);
             }
 
-            var slnfBody = File.ReadAllLines(context.SlnfFilePath).ToList();
-            var si = slnfBody.FindIndex(p => p.EndsWith("["));
-            var ei = slnfBody.FindIndex(p => p.EndsWith("]"));
+            context.ApplyChangesTo(structuredJson);
+            structuredJson.SerializeToItsFile();
 
-            slnfBody.RemoveRange(si + 1, ei - si - 1);
-
-            var addedReferencesWithSort = context.GetSortedProjects();
-            for (var i = 0; i < addedReferencesWithSort.Count; i++)
-            {
-                var addedReferenceWithSort = addedReferencesWithSort[i].Replace("\\", "\\\\");
-                var last = i == 0; //the last has zero index because of descending sorting!
-
-                if (last)
-                {
-                    slnfBody.Insert(si + 1, $"      \"{addedReferenceWithSort}\"");
-                }
-                else
-                {
-                    slnfBody.Insert(si + 1, $"      \"{addedReferenceWithSort}\",");
-                }
-            }
-
-            File.WriteAllText(
-                context.SlnfFilePath,
-                string.Join(
-                    Environment.NewLine,
-                    slnfBody
-                    )
-                );
-
-            var resultMessage = new StringBuilder();
-
-            if (context.AddedReferences.Count > 0)
-            {
-                var addedReferences = string.Join(
-                    Environment.NewLine,
-                    context.AddedReferences.Select(r => "      " + r)
-                    ).Pastel(AddedReferenceColor);
-
-                resultMessage.AppendLine($"""
-   Added references:
-{addedReferences}
-""");
-            }
-            if (context.DeletedReferences.Count > 0)
-            {
-                var deletedReferences = string.Join(
-                    Environment.NewLine,
-                    context.DeletedReferences.Select(r => "      " + r)
-                    ).Pastel(DeletedReferenceColor);
-
-                resultMessage.AppendLine($"""
-   Deleted references:
-{deletedReferences}
-""");
-            }
-
-            return resultMessage.ToString();
+            return context.BuildResultMessage();
         }
 
         private static void ProcessProjectFromSlnf(
