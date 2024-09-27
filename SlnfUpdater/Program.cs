@@ -57,22 +57,31 @@ namespace SlnfUpdater
             //foreach (var slnfFile in slnfFiles)
             Parallel.ForEach(slnfFiles, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, slnfFileName =>
             {
-                var slnfFullFilePath = Path.Combine(slnfFolderPath, slnfFileName);
+                try
+                {
+                    var slnfFullFilePath = Path.Combine(slnfFolderPath, slnfFileName);
 
-                Console.WriteLine($"Processing {slnfFullFilePath.Pastel(SolutionProjectColor)}...");
+                    Console.WriteLine($"Processing {slnfFullFilePath.Pastel(SolutionProjectColor)}...");
 
-                var result = ProcessSlnfFile(
-                    slnfFolderPath,
-                    slnfFullFilePath
-                    );
+                    var result = ProcessSlnfFile(
+                        slnfFolderPath,
+                        slnfFullFilePath
+                        );
 
-                Interlocked.Increment(ref processedCount);
+                    Interlocked.Increment(ref processedCount);
 
-                Console.WriteLine($"""
+                    Console.WriteLine($"""
 ({processedCount}/{slnfFiles.Count}) Finished {slnfFullFilePath.Pastel(SolutionProjectColor)}.
 {result}
 """);
-
+                }
+                catch(Exception excp)
+                {
+                    throw new InvalidOperationException(
+                        $"Error occured while processing {slnfFileName}",
+                        excp
+                        );
+                }
             }
             );
 
@@ -123,6 +132,11 @@ namespace SlnfUpdater
             FileInfo projectFileInfo
             )
         {
+            if (!projectFileInfo.Exists)
+            {
+                throw new InvalidOperationException($"Project does not found: {projectFileInfo.FullName}");
+            }
+
             if (projectFileInfo.Extension.In(
                 ".shproj",
                 ".vcxproj"
@@ -141,27 +155,38 @@ namespace SlnfUpdater
 
             foreach (var projectReference in projectReferences)
             {
-                var referenceProjectPathRelativeCurrentProject = projectReference.EvaluatedInclude;
-
-                var referenceProjectFullPath = Path.GetFullPath(
-                    Path.Combine(
-                        projectFolderPath,
-                        referenceProjectPathRelativeCurrentProject
-                        )
-                    );
-
-                if (context.IsProcessed(referenceProjectFullPath))
+                try
                 {
-                    continue;
+                    var referenceProjectPathRelativeCurrentProject = projectReference.EvaluatedInclude;
+
+                    var referenceProjectFullPath = Path.GetFullPath(
+                        Path.Combine(
+                            projectFolderPath,
+                            referenceProjectPathRelativeCurrentProject
+                            )
+                        );
+
+                    if (context.IsProcessed(referenceProjectFullPath))
+                    {
+                        continue;
+                    }
+
+                    context.AddReferenceFullPathIfNew(referenceProjectFullPath);
+
+                    //process recursively
+                    ProcessProjectFromSlnf(
+                        context,
+                        new FileInfo(referenceProjectFullPath)
+                        );
                 }
+                catch(Exception excp)
+                {
+                    throw new InvalidOperationException(
+                        $"Error occured while processing {projectFileInfo.FullName}",
+                        excp
+                        );
 
-                context.AddReferenceFullPathIfNew(referenceProjectFullPath);
-
-                //process recursively
-                ProcessProjectFromSlnf(
-                    context,
-                    new FileInfo(referenceProjectFullPath)
-                    );
+                }
             }
         }
 
