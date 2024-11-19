@@ -1,5 +1,9 @@
-﻿using System.Runtime.InteropServices;
+﻿using Microsoft.Build.Evaluation;
+using Pastel;
+using SlnfUpdater.Helper;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SlnfUpdater.FileStructure
 {
@@ -26,6 +30,40 @@ namespace SlnfUpdater.FileStructure
             {
                 throw new InvalidOperationException($"{slnfFullFilePath} does not found.");
             }
+        }
+
+        public string CleanupExceptRoots(
+            IReadOnlyList<string> wildcardRoots
+            )
+        {
+            var filteredRoots = new List<string>();
+            foreach(var projectFullPath in EnumerateProjectFullPaths())
+            {
+                foreach (var wildcardRoot in wildcardRoots)
+                {
+                    if(Regex.IsMatch(projectFullPath, wildcardRoot.WildCardToRegular()))
+                    {
+                        filteredRoots.Add(projectFullPath);
+                    }
+                }
+            }
+
+            JsonBody.solution.projects = filteredRoots
+                .Select(r => r.MakeRelativeAgainst(SlnFullFilePath))
+                .ToArray()
+                ;
+
+            var survivedRootsMessage = string.Join(
+                Environment.NewLine,
+                JsonBody.solution.projects
+                    .Select(r => "      " + r)
+                ).Pastel(ColorTable.FilteredRootsColor);
+
+            return $"""
+   Survived roots from {_slnfFullFilePath.Pastel(ColorTable.SolutionProjectColor)}:
+{survivedRootsMessage}
+""";
+
         }
 
         public IEnumerable<string> EnumerateProjectFullPaths(
@@ -107,7 +145,7 @@ namespace SlnfUpdater.FileStructure
 
         /// <summary>
         /// Relative paths to included csprojes.
-        /// Paths here are relative against sln file NOT a slnF file!
+        /// Paths here are relative against sln file, NOT against a slnF file!
         /// </summary>
         public string[] projects { get; set; }
 

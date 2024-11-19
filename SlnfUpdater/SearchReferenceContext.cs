@@ -11,7 +11,7 @@ namespace SlnfUpdater
         public readonly string FullPath;
         public readonly string RelativeSlnPath;
 
-        public Project2Paths(
+        private Project2Paths(
             string fullPath,
             string relativeSlnPath
             )
@@ -102,13 +102,6 @@ namespace SlnfUpdater
             _deletedReferences = new HashSet<Project2Paths>();
         }
 
-        private Project2Paths Create2PathsFrom(
-            string fileFullPath
-            )
-        {
-            return Project2Paths.Create(fileFullPath, SlnFullPath);
-        }
-
         public bool IsProcessed(string checkedFullFilePath)
         {
             //we must not check ExistReferences here
@@ -177,13 +170,18 @@ namespace SlnfUpdater
 
         public string BuildResultMessage()
         {
+            if (!HasChanges)
+            {
+                return $"   No references changed.".Pastel(ColorTable.NoReferenceColor);
+            }
+
             var resultMessage = new StringBuilder();
             if (_addedReferences.Count > 0)
             {
                 var addedReferences = string.Join(
                     Environment.NewLine,
                     _addedReferences.Select(r => "      " + r.RelativeSlnPath)
-                    ).Pastel(Program.AddedReferenceColor);
+                    ).Pastel(ColorTable.AddedReferenceColor);
 
                 resultMessage.AppendLine($"""
    Added references:
@@ -195,7 +193,7 @@ namespace SlnfUpdater
                 var deletedReferences = string.Join(
                     Environment.NewLine,
                     _deletedReferences.Select(r => "      " + r.RelativeSlnPath)
-                    ).Pastel(Program.DeletedReferenceColor);
+                    ).Pastel(ColorTable.DeletedReferenceColor);
 
                 resultMessage.AppendLine($"""
    Deleted references:
@@ -205,5 +203,14 @@ namespace SlnfUpdater
 
             return resultMessage.ToString();
         }
+
+
+        private Project2Paths Create2PathsFrom(
+            string fileFullPath
+            )
+        {
+            return Project2Paths.Create(fileFullPath, SlnFullPath);
+        }
+
     }
 }

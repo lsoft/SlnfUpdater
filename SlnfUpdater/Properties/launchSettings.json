@@ -2,7 +2,7 @@
   "profiles": {
     "SlnfUpdater": {
       "commandName": "Project",
-      "commandLineArgs": "\"..\\..\\..\\..\\Test\" \"*.slnf\""
+      "commandLineArgs": "\"..\\..\\..\\..\\Test\" \"*.slnf\" \"-rebuild-from-roots\" \"-additional-roots:*ProjectA.csproj\""
     }
   }
 }

@@ -2,6 +2,7 @@
   "solution": {
     "path": "SlnfUpdater.Test.sln",
     "projects": [
+      "SlnfUpdater.Test.ProjectAB\\SlnfUpdater.Test.ProjectAB.csproj",
       "SlnfUpdater.Test.ProjectA\\SlnfUpdater.Test.ProjectA.csproj"
     ]
   }

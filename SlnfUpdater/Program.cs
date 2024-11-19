@@ -4,24 +4,21 @@ using Microsoft.Build.Locator;
 using Pastel;
 using SlnfUpdater.FileStructure;
 using SlnfUpdater.Helper;
-using System.Drawing;
-using System.Runtime;
-using System.Text;
-using System.Text.Json;
+using SlnfUpdater.Processor;
 
 namespace SlnfUpdater
 {
+
     internal class Program
     {
-        public static System.Drawing.Color SolutionProjectColor = Color.FromArgb(165, 229, 250);
-        public static System.Drawing.Color TimeColor = Color.FromArgb(220, 110, 0);
-        public static System.Drawing.Color NoReferenceColor = Color.FromArgb(255, 255, 0);
-        public static System.Drawing.Color AddedReferenceColor = Color.FromArgb(0, 255, 0);
-        public static System.Drawing.Color DeletedReferenceColor = Color.FromArgb(220, 80, 0);
+        public const string RebuildFromRootsKey = "-rebuild-from-roots";
+        public const string AdditionalRootsKey = "-additional-roots:";
 
         static void Main(string[] args)
         {
             var before = DateTime.Now;
+
+            var roots = ScanForRebuildRoots(args);
 
             //MSBuildLocator.RegisterMSBuildPath(".");
             MSBuildLocator.RegisterDefaults();
@@ -50,179 +47,50 @@ namespace SlnfUpdater
 
             foreach (var slnfFile in slnfFiles)
             {
-                Console.WriteLine($"    {slnfFile.Pastel(SolutionProjectColor)}");
+                Console.WriteLine($"    {slnfFile.Pastel(ColorTable.SolutionProjectColor)}");
             }
 
-            var processedCount = 0;
-            //foreach (var slnfFile in slnfFiles)
-            Parallel.ForEach(slnfFiles, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, slnfFileName =>
-            {
-                try
-                {
-                    var slnfFullFilePath = Path.Combine(slnfFolderPath, slnfFileName);
-
-                    Console.WriteLine($"Processing {slnfFullFilePath.Pastel(SolutionProjectColor)}...");
-
-                    var result = ProcessSlnfFile(
-                        slnfFolderPath,
-                        slnfFullFilePath
-                        );
-
-                    Interlocked.Increment(ref processedCount);
-
-                    Console.WriteLine($"""
-({processedCount}/{slnfFiles.Count}) Finished {slnfFullFilePath.Pastel(SolutionProjectColor)}.
-{result}
-""");
-                }
-                catch(Exception excp)
-                {
-                    throw new InvalidOperationException(
-                        $"Error occured while processing {slnfFileName}",
-                        excp
-                        );
-                }
-            }
-            );
+            var processor = new SlnfFilesProcessor(
+                slnfFolderPath,
+                slnfFiles,
+                roots
+                );
+            processor.Process();
 
             var after = DateTime.Now;
-            Console.WriteLine($"Finished (taken {(after - before).ToString().Pastel(TimeColor)}).");
+            Console.WriteLine($"Finished (taken {(after - before).ToString().Pastel(ColorTable.TimeColor)}).");
         }
 
-        private static string ProcessSlnfFile(
-            string slnfFolderPath,
-            string slnfFullFilePath
+        private static BuildFromRootsMode ScanForRebuildRoots(
+            string[] args
             )
         {
-            var structuredJson = new SlnfJsonStructured(slnfFolderPath, slnfFullFilePath);
-            var context = structuredJson.BuildSearchReferenceContext();
-
-            //process any found projects for its reference, which must be added or deleted to/from slnf
-            foreach (var projectFileFullPath in structuredJson.EnumerateProjectFullPaths())
+            if (args is null || args.Length == 0)
             {
-                var projectFileInfo = new FileInfo(projectFileFullPath);
-                if (!File.Exists(projectFileFullPath))
-                {
-                    context.DeleteReference(projectFileFullPath);
-                }
-                else
-                {
-                    var projectFolderPath = projectFileInfo.Directory.FullName;
-
-                    ProcessProjectFromSlnf(
-                        context,
-                        projectFileInfo
-                        );
-                }
+                return BuildFromRootsMode.Disabled;
             }
 
-            if (!context.HasChanges)
+            var rfrArg = args.FirstOrDefault(a => a.StartsWith(RebuildFromRootsKey));
+            if (rfrArg is null)
             {
-                return $"   No references changed.".Pastel(NoReferenceColor);
+                return BuildFromRootsMode.Disabled;
             }
 
-            context.ApplyChangesTo(structuredJson);
-            structuredJson.SerializeToItsFile();
-
-            return context.BuildResultMessage();
-        }
-
-        private static void ProcessProjectFromSlnf(
-            SearchReferenceContext context,
-            FileInfo projectFileInfo
-            )
-        {
-            if (!projectFileInfo.Exists)
+            var arArgs = args.Where(a => a.StartsWith(AdditionalRootsKey)).ToList();
+            if (arArgs.Count <= 0)
             {
-                throw new InvalidOperationException($"Project does not found: {projectFileInfo.FullName}");
+                return BuildFromRootsMode.Enabled;
             }
 
-            if (projectFileInfo.Extension.In(
-                ".shproj",
-                ".vcxproj"
-                ))
+            var roots = new List<string>();
+            foreach (var arArg in arArgs)
             {
-                //skip this type of project
-                return;
+                var tail = arArg.Substring(AdditionalRootsKey.Length);
+                var tails = tail.Split(";");
+                roots.AddRange(tails);
             }
 
-            var projectFilePath = projectFileInfo.FullName;
-            var projectFolderPath = projectFileInfo.Directory.FullName;
-
-            List<ProjectItem> projectReferences = ProvideProjectReferences(
-                projectFilePath
-                );
-
-            foreach (var projectReference in projectReferences)
-            {
-                try
-                {
-                    var referenceProjectPathRelativeCurrentProject = projectReference.EvaluatedInclude;
-
-                    var referenceProjectFullPath = Path.GetFullPath(
-                        Path.Combine(
-                            projectFolderPath,
-                            referenceProjectPathRelativeCurrentProject
-                            )
-                        );
-
-                    if (context.IsProcessed(referenceProjectFullPath))
-                    {
-                        continue;
-                    }
-
-                    context.AddReferenceFullPathIfNew(referenceProjectFullPath);
-
-                    //process recursively
-                    ProcessProjectFromSlnf(
-                        context,
-                        new FileInfo(referenceProjectFullPath)
-                        );
-                }
-                catch(Exception excp)
-                {
-                    throw new InvalidOperationException(
-                        $"Error occured while processing {projectFileInfo.FullName}",
-                        excp
-                        );
-
-                }
-            }
-        }
-
-        private static List<ProjectItem> ProvideProjectReferences(
-            string projectFilePath
-            )
-        {
-            var projectXmlRoot = Microsoft.Build.Construction.ProjectRootElement.Open(
-                projectFilePath
-                );
-
-            using (var projectCollection = new Microsoft.Build.Evaluation.ProjectCollection())
-            {
-                Microsoft.Build.Evaluation.Project? evaluatedProject = null;
-                try
-                {
-                    evaluatedProject = Microsoft.Build.Evaluation.Project.FromProjectRootElement(
-                        projectXmlRoot,
-                        new Microsoft.Build.Definition.ProjectOptions
-                        {
-                            ProjectCollection = projectCollection
-                        }
-                        );
-
-                    return evaluatedProject.AllEvaluatedItems
-                        .Where(p => p.ItemType == "ProjectReference")
-                        .ToList();
-                }
-                finally
-                {
-                    if (evaluatedProject is not null)
-                    {
-                        projectCollection.UnloadProject(evaluatedProject);
-                    }
-                }
-            }
+            return BuildFromRootsMode.WithAdditionalRoots(roots);
         }
     }
 }
