@@ -8,20 +8,32 @@ using SlnfUpdater.Processor;
 
 namespace SlnfUpdater
 {
-
-    internal class Program
+    file static class Program
     {
-        public const string RebuildFromRootsKey = "-rebuild-from-roots";
-        public const string AdditionalRootsKey = "-additional-roots:";
+        private const string RebuildFromRootsKey = "-rebuild-from-roots";
+        private const string AdditionalRootsKey = "-additional-roots:";
 
-        static void Main(string[] args)
+        static void Main(string[]? args)
         {
+            if (args == null || args.Length < 2)
+            {
+                Console.WriteLine("You need to provide at least 2 arguments: path to the root directory and slnf file mask!");
+                return;
+            }
+
             var before = DateTime.Now;
 
             var roots = ScanForRebuildRoots(args);
 
-            //MSBuildLocator.RegisterMSBuildPath(".");
-            MSBuildLocator.RegisterDefaults();
+            try
+            {
+                MSBuildLocator.RegisterDefaults();
+            }
+            catch
+            {
+                // failed to register default, registering in dirty way
+                MSBuildLocator.RegisterMSBuildPath(Directory.GetCurrentDirectory());
+            }
 
             var slnfFolderPath = Path.GetFullPath(args[0]);
             var slnfFileMask = args[1];
@@ -62,7 +74,7 @@ namespace SlnfUpdater
         }
 
         private static BuildFromRootsMode ScanForRebuildRoots(
-            string[] args
+            string[]? args
             )
         {
             if (args is null || args.Length == 0)
