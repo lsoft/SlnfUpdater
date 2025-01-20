@@ -1,4 +1,7 @@
-﻿using Microsoft.Build.Construction;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Pastel;
 using SlnfUpdater.FileStructure;
 using SlnfUpdater.Helper;
@@ -159,7 +162,7 @@ namespace SlnfUpdater
 
         public void ApplyChangesTo(SlnfJsonStructured structured)
         {
-            structured.JsonBody.solution.projects =
+            structured.JsonBody.Solution.Projects =
                 _addedReferences
                     .Union(_existReferences.Except(_deletedReferences))
                     .Select(twoPaths => twoPaths.RelativeSlnPath)
@@ -211,6 +214,5 @@ namespace SlnfUpdater
         {
             return Project2Paths.Create(fileFullPath, SlnFullPath);
         }
-
     }
 }

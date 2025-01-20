@@ -1,9 +1,9 @@
-﻿using Microsoft.Build.Definition;
-using Microsoft.Build.Evaluation;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Microsoft.Build.Locator;
 using Pastel;
-using SlnfUpdater.FileStructure;
-using SlnfUpdater.Helper;
 using SlnfUpdater.Processor;
 
 namespace SlnfUpdater
@@ -67,6 +67,7 @@ namespace SlnfUpdater
                 slnfFiles,
                 roots
                 );
+
             processor.Process();
 
             var after = DateTime.Now;
@@ -97,7 +98,7 @@ namespace SlnfUpdater
             var roots = new List<string>();
             foreach (var arArg in arArgs)
             {
-                var tail = arArg.Substring(AdditionalRootsKey.Length);
+                var tail = arArg[AdditionalRootsKey.Length..];
                 var tails = tail.Split(";");
                 roots.AddRange(tails);
             }

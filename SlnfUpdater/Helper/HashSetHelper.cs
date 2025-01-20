@@ -1,4 +1,6 @@
-﻿namespace SlnfUpdater.Helper
+﻿using System.Collections.Generic;
+
+namespace SlnfUpdater.Helper
 {
     public static class HashSetHelper
     {

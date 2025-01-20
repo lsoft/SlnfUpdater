@@ -1,4 +1,8 @@
-﻿namespace SlnfUpdater.Helper
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace SlnfUpdater.Helper
 {
     public static class ArrayHelper
     {
@@ -56,14 +60,8 @@
 
         public static void Foreach<T>(this T[] list, Action<T> method)
         {
-            if (list == null)
-            {
-                throw new ArgumentNullException(nameof(list));
-            }
-            if (method == null)
-            {
-                throw new ArgumentNullException(nameof(method));
-            }
+            ArgumentNullException.ThrowIfNull(list);
+            ArgumentNullException.ThrowIfNull(method);
 
             for (var cc = 0; cc < list.Length; cc++)
             {
@@ -139,14 +137,8 @@
 
         public static T[] Concatenate<T>(this T[] a, T[] b)
         {
-            if (a == null)
-            {
-                throw new ArgumentNullException(nameof(a));
-            }
-            if (b == null)
-            {
-                throw new ArgumentNullException(nameof(b));
-            }
+            ArgumentNullException.ThrowIfNull(a);
+            ArgumentNullException.ThrowIfNull(b);
 
             var r = new T[a.Length + b.Length];
             Array.Copy(a, 0, r, 0, a.Length);
@@ -158,14 +150,8 @@
 
         public static T[] Concatenate<T>(this T[] a, T[] b, int bSize)
         {
-            if (a == null)
-            {
-                throw new ArgumentNullException(nameof(a));
-            }
-            if (b == null)
-            {
-                throw new ArgumentNullException(nameof(b));
-            }
+            ArgumentNullException.ThrowIfNull(a);
+            ArgumentNullException.ThrowIfNull(b);
 
             var r = new T[a.Length + bSize];
             Array.Copy(a, 0, r, 0, a.Length);
@@ -177,10 +163,7 @@
 
         public static T[] GetSubArray<T>(this T[] a, int startIndex)
         {
-            if (a == null)
-            {
-                throw new ArgumentNullException(nameof(a));
-            }
+            ArgumentNullException.ThrowIfNull(a);
             if (startIndex < 0 || startIndex >= a.Length)
             {
                 throw new ArgumentException("startIndex < 0 || startIndex >= a.Length");
@@ -192,10 +175,7 @@
 
         public static T[] GetSubArray<T>(this T[] a, int startIndex, int length)
         {
-            if (a == null)
-            {
-                throw new ArgumentNullException(nameof(a));
-            }
+            ArgumentNullException.ThrowIfNull(a);
             if (startIndex < 0 || startIndex >= a.Length)
             {
                 throw new ArgumentException("startIndex < 0 || startIndex >= a.Length");
@@ -213,14 +193,8 @@
 
         public static TT[] ConvertAll<TF, TT>(this TF[] array, Func<TF, TT> converter)
         {
-            if (array == null)
-            {
-                throw new ArgumentNullException(nameof(array));
-            }
-            if (converter == null)
-            {
-                throw new ArgumentNullException(nameof(converter));
-            }
+            ArgumentNullException.ThrowIfNull(array);
+            ArgumentNullException.ThrowIfNull(converter);
 
             var result = new TT[array.Length];
 

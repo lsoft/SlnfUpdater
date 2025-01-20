@@ -1,9 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SlnfUpdater
 {
@@ -33,13 +29,8 @@ namespace SlnfUpdater
             List<string> additionalRootWildcards
             )
         {
-            if (additionalRootWildcards is null)
-            {
-                throw new ArgumentNullException(nameof(additionalRootWildcards));
-            }
-
             IsEnabled = true;
-            AdditionalRootWildcards = additionalRootWildcards;
+            AdditionalRootWildcards = additionalRootWildcards ?? throw new ArgumentNullException(nameof(additionalRootWildcards));
         }
     }
 }

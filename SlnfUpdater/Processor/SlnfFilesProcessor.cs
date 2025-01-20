@@ -1,12 +1,10 @@
-﻿using Microsoft.Build.Evaluation;
-using Pastel;
+﻿using Pastel;
 using SlnfUpdater.FileStructure;
-using SlnfUpdater.Helper;
 using SlnfUpdater.Processor.ProjectFile;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SlnfUpdater.Processor
@@ -23,24 +21,9 @@ namespace SlnfUpdater.Processor
             BuildFromRootsMode fromRootsMode
             )
         {
-            if (slnfFolderPath is null)
-            {
-                throw new ArgumentNullException(nameof(slnfFolderPath));
-            }
-
-            if (slnfFiles is null)
-            {
-                throw new ArgumentNullException(nameof(slnfFiles));
-            }
-
-            if (fromRootsMode is null)
-            {
-                throw new ArgumentNullException(nameof(fromRootsMode));
-            }
-
-            _slnfFolderPath = slnfFolderPath;
-            _slnfFiles = slnfFiles;
-            _fromRootsMode = fromRootsMode;
+            _slnfFolderPath = slnfFolderPath ?? throw new ArgumentNullException(nameof(slnfFolderPath));
+            _slnfFiles = slnfFiles ?? throw new ArgumentNullException(nameof(slnfFiles));
+            _fromRootsMode = fromRootsMode ?? throw new ArgumentNullException(nameof(fromRootsMode));
         }
 
         public void Process(
@@ -102,13 +85,11 @@ namespace SlnfUpdater.Processor
                 projectFileProcessor.ProcessProjectFromSlnf(
                     projectFileFullPath
                     );
-
             }
 
             projectFileProcessor.ApplyAndSave();
 
             return projectFileProcessor.BuildResultMessage();
         }
-
     }
 }

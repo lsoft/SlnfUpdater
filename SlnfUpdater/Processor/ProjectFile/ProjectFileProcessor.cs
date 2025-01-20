@@ -1,12 +1,10 @@
 ﻿using Microsoft.Build.Evaluation;
-using Pastel;
 using SlnfUpdater.FileStructure;
 using SlnfUpdater.Helper;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SlnfUpdater.Processor.ProjectFile
 {
@@ -80,12 +78,7 @@ namespace SlnfUpdater.Processor.ProjectFile
             SlnfJsonStructured structuredJson
             )
         {
-            if (structuredJson is null)
-            {
-                throw new ArgumentNullException(nameof(structuredJson));
-            }
-
-            _structuredJson = structuredJson;
+            _structuredJson = structuredJson ?? throw new ArgumentNullException(nameof(structuredJson));
             _context = structuredJson.BuildSearchReferenceContext();
         }
 
@@ -173,7 +166,6 @@ namespace SlnfUpdater.Processor.ProjectFile
                         $"Error occurred while processing {projectFileInfo.FullName}",
                         excp
                         );
-
                 }
             }
         }
