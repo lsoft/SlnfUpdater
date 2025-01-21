@@ -65,26 +65,22 @@ namespace SlnfUpdater.Processor
             string slnfFullFilePath
             )
         {
-            var structuredJson = new SlnfJsonStructured(_slnfFolderPath, slnfFullFilePath);
+            var slnf = new Slnf(_slnfFolderPath, slnfFullFilePath);
 
             if (_fromRootsMode.IsEnabled)
             {
-                var resultMessage = structuredJson.CleanupExceptRoots(_fromRootsMode.AdditionalRootWildcards);
-                structuredJson.SerializeToItsFile();
+                var resultMessage = slnf.CleanupExceptRoots(_fromRootsMode.AdditionalRootWildcards);
+                slnf.SerializeToItsFile();
 
                 Console.WriteLine(resultMessage);
             }
 
-            var projectFileProcessor = new ScanForChangesProcessor(
-                structuredJson
-                );
+            var projectFileProcessor = new ScanForChangesProcessor(slnf);
 
             //process any found projects for its reference, which must be added or deleted to/from slnf
-            foreach (var projectFileFullPath in structuredJson.EnumerateProjectFullPaths())
+            foreach (var projectFileFullPath in slnf.EnumerateProjectFullPaths())
             {
-                projectFileProcessor.ProcessProjectFromSlnf(
-                    projectFileFullPath
-                    );
+                projectFileProcessor.ProcessProjectFromSlnf(projectFileFullPath);
             }
 
             projectFileProcessor.ApplyAndSave();

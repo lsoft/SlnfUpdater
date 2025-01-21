@@ -1,6 +1,6 @@
 ﻿using Newtonsoft.Json;
 
-namespace SlnfUpdater.FileStructure;
+namespace SlnfUpdater.FileStructure.Json;
 
 public sealed class SlnfSolutionJson
 {

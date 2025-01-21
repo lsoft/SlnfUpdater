@@ -160,7 +160,7 @@ namespace SlnfUpdater
             _addedReferences.Add(twoPaths);
         }
 
-        public void ApplyChangesTo(SlnfJsonStructured structured)
+        public void ApplyChangesTo(Slnf structured)
         {
             structured.JsonBody.Solution.Projects =
                 _addedReferences

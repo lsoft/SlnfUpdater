@@ -5,10 +5,11 @@ using System.Linq;
 using Pastel;
 using SlnfUpdater.Helper;
 using System.Text.RegularExpressions;
+using SlnfUpdater.FileStructure.Json;
 
 namespace SlnfUpdater.FileStructure
 {
-    public sealed class SlnfJsonStructured
+    public sealed class Slnf
     {
         private readonly string _slnfFileFullFolderPath;
         private readonly string _slnfFullFilePath;
@@ -18,7 +19,7 @@ namespace SlnfUpdater.FileStructure
         public string SlnFullFilePath => Path.GetFullPath(Path.Combine(_slnfFileFullFolderPath, JsonBody.Solution.Path));
         public string SlnFullFolderPath => new FileInfo(SlnFullFilePath).Directory.FullName;
 
-        public SlnfJsonStructured(
+        public Slnf(
             string slnfFileFullFolderPath,
             string slnfFullFilePath
         )

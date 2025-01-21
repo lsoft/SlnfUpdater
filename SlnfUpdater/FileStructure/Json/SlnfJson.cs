@@ -3,7 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Newtonsoft.Json;
 
-namespace SlnfUpdater.FileStructure;
+namespace SlnfUpdater.FileStructure.Json;
 
 public sealed class SlnfJson
 {
