@@ -1,12 +1,10 @@
 ﻿using Microsoft.Build.Evaluation;
-using Pastel;
 using SlnfUpdater.FileStructure;
 using SlnfUpdater.Helper;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SlnfUpdater.Processor.ProjectFile
 {
@@ -38,7 +36,7 @@ namespace SlnfUpdater.Processor.ProjectFile
 
     //public sealed class CleanupRootsProcessor : ProjectFileProcessor
     //{
-    //    private readonly SlnfJsonStructured _structuredJson;
+    //    private readonly SlnfJsonStructured _slnf;
         
     //    /// <summary>
     //    /// projects from slnf which have to references from other slnf's projects.
@@ -46,15 +44,15 @@ namespace SlnfUpdater.Processor.ProjectFile
     //    private List<string> _existingRoots = [];
 
     //    public CleanupRootsProcessor(
-    //        SlnfJsonStructured structuredJson
+    //        SlnfJsonStructured slnf
     //        )
     //    {
-    //        if (structuredJson is null)
+    //        if (slnf is null)
     //        {
-    //            throw new ArgumentNullException(nameof(structuredJson));
+    //            throw new ArgumentNullException(nameof(slnf));
     //        }
 
-    //        _structuredJson = structuredJson;
+    //        _slnf = slnf;
     //    }
 
     //    public override void ProcessProjectFromSlnf(
@@ -73,20 +71,15 @@ namespace SlnfUpdater.Processor.ProjectFile
 
     public sealed class ScanForChangesProcessor : ProjectFileProcessor
     {
-        private readonly SlnfJsonStructured _structuredJson;
+        private readonly Slnf _slnf;
         private readonly SearchReferenceContext _context;
 
         public ScanForChangesProcessor(
-            SlnfJsonStructured structuredJson
+            Slnf slnf
             )
         {
-            if (structuredJson is null)
-            {
-                throw new ArgumentNullException(nameof(structuredJson));
-            }
-
-            _structuredJson = structuredJson;
-            _context = structuredJson.BuildSearchReferenceContext();
+            _slnf = slnf ?? throw new ArgumentNullException(nameof(slnf));
+            _context = slnf.BuildSearchReferenceContext();
         }
 
         public void ApplyAndSave()
@@ -96,8 +89,8 @@ namespace SlnfUpdater.Processor.ProjectFile
                 return;
             }
 
-            _context.ApplyChangesTo(_structuredJson);
-            _structuredJson.SerializeToItsFile();
+            _context.ApplyChangesTo(_slnf);
+            _slnf.SerializeToItsFile();
         }
 
         public string BuildResultMessage()
@@ -173,7 +166,6 @@ namespace SlnfUpdater.Processor.ProjectFile
                         $"Error occurred while processing {projectFileInfo.FullName}",
                         excp
                         );
-
                 }
             }
         }

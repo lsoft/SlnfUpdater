@@ -1,27 +1,39 @@
-﻿using Microsoft.Build.Definition;
-using Microsoft.Build.Evaluation;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Microsoft.Build.Locator;
 using Pastel;
-using SlnfUpdater.FileStructure;
-using SlnfUpdater.Helper;
 using SlnfUpdater.Processor;
 
 namespace SlnfUpdater
 {
-
-    internal class Program
+    file static class Program
     {
-        public const string RebuildFromRootsKey = "-rebuild-from-roots";
-        public const string AdditionalRootsKey = "-additional-roots:";
+        private const string RebuildFromRootsKey = "-rebuild-from-roots";
+        private const string AdditionalRootsKey = "-additional-roots:";
 
-        static void Main(string[] args)
+        static void Main(string[]? args)
         {
+            if (args == null || args.Length < 2)
+            {
+                Console.WriteLine("You need to provide at least 2 arguments: path to the root directory and slnf file mask!");
+                return;
+            }
+
             var before = DateTime.Now;
 
             var roots = ScanForRebuildRoots(args);
 
-            //MSBuildLocator.RegisterMSBuildPath(".");
-            MSBuildLocator.RegisterDefaults();
+            try
+            {
+                MSBuildLocator.RegisterDefaults();
+            }
+            catch
+            {
+                // failed to register default, registering in dirty way
+                MSBuildLocator.RegisterMSBuildPath(Directory.GetCurrentDirectory());
+            }
 
             var slnfFolderPath = Path.GetFullPath(args[0]);
             var slnfFileMask = args[1];
@@ -55,6 +67,7 @@ namespace SlnfUpdater
                 slnfFiles,
                 roots
                 );
+
             processor.Process();
 
             var after = DateTime.Now;
@@ -62,7 +75,7 @@ namespace SlnfUpdater
         }
 
         private static BuildFromRootsMode ScanForRebuildRoots(
-            string[] args
+            string[]? args
             )
         {
             if (args is null || args.Length == 0)
@@ -85,7 +98,7 @@ namespace SlnfUpdater
             var roots = new List<string>();
             foreach (var arArg in arArgs)
             {
-                var tail = arArg.Substring(AdditionalRootsKey.Length);
+                var tail = arArg[AdditionalRootsKey.Length..];
                 var tails = tail.Split(";");
                 roots.AddRange(tails);
             }

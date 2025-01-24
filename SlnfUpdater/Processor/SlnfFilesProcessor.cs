@@ -1,12 +1,10 @@
-﻿using Microsoft.Build.Evaluation;
-using Pastel;
+﻿using Pastel;
 using SlnfUpdater.FileStructure;
-using SlnfUpdater.Helper;
 using SlnfUpdater.Processor.ProjectFile;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SlnfUpdater.Processor
@@ -23,24 +21,9 @@ namespace SlnfUpdater.Processor
             BuildFromRootsMode fromRootsMode
             )
         {
-            if (slnfFolderPath is null)
-            {
-                throw new ArgumentNullException(nameof(slnfFolderPath));
-            }
-
-            if (slnfFiles is null)
-            {
-                throw new ArgumentNullException(nameof(slnfFiles));
-            }
-
-            if (fromRootsMode is null)
-            {
-                throw new ArgumentNullException(nameof(fromRootsMode));
-            }
-
-            _slnfFolderPath = slnfFolderPath;
-            _slnfFiles = slnfFiles;
-            _fromRootsMode = fromRootsMode;
+            _slnfFolderPath = slnfFolderPath ?? throw new ArgumentNullException(nameof(slnfFolderPath));
+            _slnfFiles = slnfFiles ?? throw new ArgumentNullException(nameof(slnfFiles));
+            _fromRootsMode = fromRootsMode ?? throw new ArgumentNullException(nameof(fromRootsMode));
         }
 
         public void Process(
@@ -82,33 +65,27 @@ namespace SlnfUpdater.Processor
             string slnfFullFilePath
             )
         {
-            var structuredJson = new SlnfJsonStructured(_slnfFolderPath, slnfFullFilePath);
+            var slnf = new Slnf(_slnfFolderPath, slnfFullFilePath);
 
             if (_fromRootsMode.IsEnabled)
             {
-                var resultMessage = structuredJson.CleanupExceptRoots(_fromRootsMode.AdditionalRootWildcards);
-                structuredJson.SerializeToItsFile();
+                var resultMessage = slnf.CleanupExceptRoots(_fromRootsMode.AdditionalRootWildcards);
+                slnf.SerializeToItsFile();
 
                 Console.WriteLine(resultMessage);
             }
 
-            var projectFileProcessor = new ScanForChangesProcessor(
-                structuredJson
-                );
+            var projectFileProcessor = new ScanForChangesProcessor(slnf);
 
             //process any found projects for its reference, which must be added or deleted to/from slnf
-            foreach (var projectFileFullPath in structuredJson.EnumerateProjectFullPaths())
+            foreach (var projectFileFullPath in slnf.EnumerateProjectFullPaths())
             {
-                projectFileProcessor.ProcessProjectFromSlnf(
-                    projectFileFullPath
-                    );
-
+                projectFileProcessor.ProcessProjectFromSlnf(projectFileFullPath);
             }
 
             projectFileProcessor.ApplyAndSave();
 
             return projectFileProcessor.BuildResultMessage();
         }
-
     }
 }
