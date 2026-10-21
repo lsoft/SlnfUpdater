@@ -1,6 +1,6 @@
-﻿using Microsoft.Build.Evaluation;
+﻿using Microsoft.Build.Construction;
+using Microsoft.Build.Evaluation;
 using SlnfUpdater.FileStructure;
-using SlnfUpdater.Helper;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -21,10 +21,8 @@ namespace SlnfUpdater.Processor.ProjectFile
                 throw new InvalidOperationException($"Project does not found: {projectFileInfo.FullName}");
             }
 
-            if (projectFileInfo.Extension.In(
-                ".shproj",
-                ".vcxproj"
-                ))
+            if (string.Equals(projectFileInfo.Extension, ".shproj", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(projectFileInfo.Extension, ".vcxproj", StringComparison.OrdinalIgnoreCase))
             {
                 //skip this type of project
                 return true;
@@ -34,45 +32,15 @@ namespace SlnfUpdater.Processor.ProjectFile
         }
     }
 
-    //public sealed class CleanupRootsProcessor : ProjectFileProcessor
-    //{
-    //    private readonly SlnfJsonStructured _slnf;
-        
-    //    /// <summary>
-    //    /// projects from slnf which have to references from other slnf's projects.
-    //    /// </summary>
-    //    private List<string> _existingRoots = [];
-
-    //    public CleanupRootsProcessor(
-    //        SlnfJsonStructured slnf
-    //        )
-    //    {
-    //        if (slnf is null)
-    //        {
-    //            throw new ArgumentNullException(nameof(slnf));
-    //        }
-
-    //        _slnf = slnf;
-    //    }
-
-    //    public override void ProcessProjectFromSlnf(
-    //        string projectFileFullPath
-    //        )
-    //    {
-    //        var projectFileInfo = new FileInfo(projectFileFullPath);
-    //        if (!File.Exists(projectFileFullPath))
-    //        {
-    //            //project file does not exists, so skip it entirely
-    //            return;
-    //        }
-
-    //    }
-    //}
-
-    public sealed class ScanForChangesProcessor : ProjectFileProcessor
+    public sealed class ScanForChangesProcessor : ProjectFileProcessor, IDisposable
     {
         private readonly Slnf _slnf;
         private readonly SearchReferenceContext _context;
+
+        /// <summary>
+        /// One collection for the whole slnf: creating a collection per project is expensive.
+        /// </summary>
+        private readonly ProjectCollection _projectCollection;
 
         public ScanForChangesProcessor(
             Slnf slnf
@@ -80,9 +48,12 @@ namespace SlnfUpdater.Processor.ProjectFile
         {
             _slnf = slnf ?? throw new ArgumentNullException(nameof(slnf));
             _context = slnf.BuildSearchReferenceContext();
+            _projectCollection = new ProjectCollection(BuildSolutionGlobalProperties(slnf.SlnFullFilePath));
         }
 
-        public void ApplyAndSave()
+        public bool HasChanges => _context.HasChanges;
+
+        public void ApplyChanges()
         {
             if (!_context.HasChanges)
             {
@@ -90,7 +61,6 @@ namespace SlnfUpdater.Processor.ProjectFile
             }
 
             _context.ApplyChangesTo(_slnf);
-            _slnf.SerializeToItsFile();
         }
 
         public string BuildResultMessage()
@@ -102,7 +72,13 @@ namespace SlnfUpdater.Processor.ProjectFile
             string projectFileFullPath
             )
         {
-            var projectFileInfo = new FileInfo(projectFileFullPath);
+            projectFileFullPath = Path.GetFullPath(projectFileFullPath);
+
+            if (_context.IsProcessed(projectFileFullPath))
+            {
+                //already processed as a reference of another project
+                return;
+            }
 
             if (!File.Exists(projectFileFullPath))
             {
@@ -111,10 +87,17 @@ namespace SlnfUpdater.Processor.ProjectFile
                 return;
             }
 
+            _context.MarkProcessed(projectFileFullPath);
+
             ProcessProjectFromSlnf(
                 _context,
-                projectFileInfo
+                new FileInfo(projectFileFullPath)
                 );
+        }
+
+        public void Dispose()
+        {
+            _projectCollection.Dispose();
         }
 
         private void ProcessProjectFromSlnf(
@@ -128,24 +111,29 @@ namespace SlnfUpdater.Processor.ProjectFile
             }
 
             var projectFilePath = projectFileInfo.FullName;
-            var projectFolderPath = projectFileInfo.Directory.FullName;
+            var projectFolderPath = projectFileInfo.DirectoryName!;
 
             var projectReferences = ProvideProjectReferences(
                 projectFilePath
                 );
 
-            foreach (var projectReference in projectReferences)
+            foreach (var referenceProjectPathRelativeCurrentProject in projectReferences)
             {
                 try
                 {
-                    var referenceProjectPathRelativeCurrentProject = projectReference.EvaluatedInclude;
-
                     var referenceProjectFullPath = Path.GetFullPath(
                         Path.Combine(
                             projectFolderPath,
                             referenceProjectPathRelativeCurrentProject
                             )
                         );
+
+                    if (!File.Exists(referenceProjectFullPath))
+                    {
+                        throw new InvalidOperationException(
+                            $"{projectFilePath} references a project which does not exist: {referenceProjectFullPath}"
+                            );
+                    }
 
                     if (context.IsProcessed(referenceProjectFullPath))
                     {
@@ -170,39 +158,58 @@ namespace SlnfUpdater.Processor.ProjectFile
             }
         }
 
-        private static List<ProjectItem> ProvideProjectReferences(
+        private List<string> ProvideProjectReferences(
             string projectFilePath
             )
         {
-            var projectXmlRoot = Microsoft.Build.Construction.ProjectRootElement.Open(
-                projectFilePath
+            var projectXmlRoot = ProjectRootElement.Open(
+                projectFilePath,
+                _projectCollection
                 );
 
-            using (var projectCollection = new ProjectCollection())
+            Project? evaluatedProject = null;
+            try
             {
-                Project? evaluatedProject = null;
-                try
-                {
-                    evaluatedProject = Project.FromProjectRootElement(
-                        projectXmlRoot,
-                        new Microsoft.Build.Definition.ProjectOptions
-                        {
-                            ProjectCollection = projectCollection
-                        }
-                        );
-
-                    return evaluatedProject.ItemsIgnoringCondition
-                        .Where(p => p.ItemType == "ProjectReference")
-                        .ToList();
-                }
-                finally
-                {
-                    if (evaluatedProject is not null)
+                evaluatedProject = Project.FromProjectRootElement(
+                    projectXmlRoot,
+                    new Microsoft.Build.Definition.ProjectOptions
                     {
-                        projectCollection.UnloadProject(evaluatedProject);
+                        ProjectCollection = _projectCollection
                     }
+                    );
+
+                return evaluatedProject.ItemsIgnoringCondition
+                    .Where(p => p.ItemType == "ProjectReference")
+                    .Select(p => p.EvaluatedInclude)
+                    .ToList();
+            }
+            finally
+            {
+                if (evaluatedProject is not null)
+                {
+                    _projectCollection.UnloadProject(evaluatedProject);
                 }
             }
+        }
+
+        /// <summary>
+        /// Properties which MSBuild defines while building a solution,
+        /// project references may use them, e.g. $(SolutionDir).
+        /// </summary>
+        private static Dictionary<string, string> BuildSolutionGlobalProperties(
+            string slnFullFilePath
+            )
+        {
+            var slnFolderPath = Path.GetDirectoryName(slnFullFilePath)!;
+
+            return new Dictionary<string, string>
+            {
+                ["SolutionDir"] = slnFolderPath + Path.DirectorySeparatorChar,
+                ["SolutionPath"] = slnFullFilePath,
+                ["SolutionFileName"] = Path.GetFileName(slnFullFilePath),
+                ["SolutionName"] = Path.GetFileNameWithoutExtension(slnFullFilePath),
+                ["SolutionExt"] = Path.GetExtension(slnFullFilePath)
+            };
         }
     }
 }

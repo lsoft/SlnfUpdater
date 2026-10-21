@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <!-- MSBuild is loaded from the newest installed .NET SDK, so tests must be able to run on its runtime -->
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- MSBuild assemblies must not be copied to the output: MSBuildLocator loads them from the .NET SDK -->
+    <PackageReference Include="Microsoft.Build" Version="17.12.50" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.12.50" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NET.StringTools" Version="17.12.50" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SlnfUpdater\SlnfUpdater.csproj" />
+  </ItemGroup>
+
+</Project>

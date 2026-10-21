@@ -1,9 +1,12 @@
 ﻿using Pastel;
 using SlnfUpdater.FileStructure;
+using SlnfUpdater.Helper;
 using SlnfUpdater.Processor.ProjectFile;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -26,66 +29,85 @@ namespace SlnfUpdater.Processor
             _fromRootsMode = fromRootsMode ?? throw new ArgumentNullException(nameof(fromRootsMode));
         }
 
-        public void Process(
+        /// <summary>
+        /// Processes all slnf files; a failure in one file does not stop processing of others.
+        /// </summary>
+        /// <returns>Count of failed slnf files.</returns>
+        public int Process(
             )
         {
             var processedCount = 0;
-            //foreach (var slnfFile in _slnfFiles)
+            var failedCount = 0;
+
             Parallel.ForEach(_slnfFiles, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, slnfFileName =>
             {
+                var slnfFullFilePath = Path.Combine(_slnfFolderPath, slnfFileName);
+
                 try
                 {
-                    var slnfFullFilePath = Path.Combine(_slnfFolderPath, slnfFileName);
-
                     Console.WriteLine($"Processing {slnfFullFilePath.Pastel(ColorTable.SolutionProjectColor)}...");
 
                     var result = ProcessSlnfFile(
                         slnfFullFilePath
                         );
 
-                    Interlocked.Increment(ref processedCount);
+                    var currentCount = Interlocked.Increment(ref processedCount);
 
                     Console.WriteLine($"""
-({processedCount}/{_slnfFiles.Count}) Finished {slnfFullFilePath.Pastel(ColorTable.SolutionProjectColor)}.
+({currentCount}/{_slnfFiles.Count}) Finished {slnfFullFilePath.Pastel(ColorTable.SolutionProjectColor)}.
 {result}
 """);
                 }
                 catch (Exception excp)
                 {
-                    throw new InvalidOperationException(
-                        $"Error occurred while processing {slnfFileName}",
-                        excp
-                        );
+                    Interlocked.Increment(ref failedCount);
+                    var currentCount = Interlocked.Increment(ref processedCount);
+
+                    Console.Error.WriteLine($"""
+({currentCount}/{_slnfFiles.Count}) Failed {slnfFullFilePath.Pastel(ColorTable.SolutionProjectColor)}, the file is left unchanged:
+{excp.BuildMessageChain().Pastel(ColorTable.ErrorColor)}
+""");
                 }
             }
             );
+
+            return failedCount;
         }
 
         private string ProcessSlnfFile(
             string slnfFullFilePath
             )
         {
-            var slnf = new Slnf(_slnfFolderPath, slnfFullFilePath);
+            var slnf = new Slnf(slnfFullFilePath);
+            var originalProjects = slnf.JsonBody.Solution.Projects.ToArray();
 
+            var resultMessage = new StringBuilder();
+
+            //all changes are made in memory, slnf file is written only if everything succeeded
             if (_fromRootsMode.IsEnabled)
             {
-                var resultMessage = slnf.CleanupExceptRoots(_fromRootsMode.AdditionalRootWildcards);
-                slnf.SerializeToItsFile();
-
-                Console.WriteLine(resultMessage);
+                resultMessage.AppendLine(slnf.CleanupExceptRoots(_fromRootsMode.AdditionalRootWildcards));
             }
 
-            var projectFileProcessor = new ScanForChangesProcessor(slnf);
-
-            //process any found projects for its reference, which must be added or deleted to/from slnf
-            foreach (var projectFileFullPath in slnf.EnumerateProjectFullPaths())
+            using (var projectFileProcessor = new ScanForChangesProcessor(slnf))
             {
-                projectFileProcessor.ProcessProjectFromSlnf(projectFileFullPath);
+                //process any found projects for its reference, which must be added or deleted to/from slnf
+                foreach (var projectFileFullPath in slnf.EnumerateProjectFullPaths().ToList())
+                {
+                    projectFileProcessor.ProcessProjectFromSlnf(projectFileFullPath);
+                }
+
+                projectFileProcessor.ApplyChanges();
+
+                resultMessage.Append(projectFileProcessor.BuildResultMessage());
             }
 
-            projectFileProcessor.ApplyAndSave();
+            if (!originalProjects.SequenceEqual(slnf.JsonBody.Solution.Projects, StringComparer.Ordinal))
+            {
+                slnf.SerializeToItsFile();
+            }
 
-            return projectFileProcessor.BuildResultMessage();
+            return resultMessage.ToString();
         }
     }
 }

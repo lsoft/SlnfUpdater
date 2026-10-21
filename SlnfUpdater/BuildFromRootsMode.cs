@@ -6,7 +6,6 @@ namespace SlnfUpdater
     public sealed class BuildFromRootsMode
     {
         public static readonly BuildFromRootsMode Disabled = new();
-        public static readonly BuildFromRootsMode Enabled = new([]);
         public static BuildFromRootsMode WithAdditionalRoots(List<string> additionalRootWildcards) => new(additionalRootWildcards);
 
         public bool IsEnabled
@@ -29,8 +28,16 @@ namespace SlnfUpdater
             List<string> additionalRootWildcards
             )
         {
+            ArgumentNullException.ThrowIfNull(additionalRootWildcards);
+
+            //without roots the mode would remove every project from slnf
+            if (additionalRootWildcards.Count == 0)
+            {
+                throw new ArgumentException("At least one root wildcard must be provided.", nameof(additionalRootWildcards));
+            }
+
             IsEnabled = true;
-            AdditionalRootWildcards = additionalRootWildcards ?? throw new ArgumentNullException(nameof(additionalRootWildcards));
+            AdditionalRootWildcards = additionalRootWildcards;
         }
     }
 }

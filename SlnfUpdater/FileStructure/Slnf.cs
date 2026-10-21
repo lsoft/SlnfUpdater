@@ -4,54 +4,48 @@ using System.IO;
 using System.Linq;
 using Pastel;
 using SlnfUpdater.Helper;
-using System.Text.RegularExpressions;
 using SlnfUpdater.FileStructure.Json;
 
 namespace SlnfUpdater.FileStructure
 {
     public sealed class Slnf
     {
-        private readonly string _slnfFileFullFolderPath;
         private readonly string _slnfFullFilePath;
 
-        public SlnfJson JsonBody { get; set; }
+        public SlnfJson JsonBody { get; }
 
-        public string SlnFullFilePath => Path.GetFullPath(Path.Combine(_slnfFileFullFolderPath, JsonBody.Solution.Path));
-        public string SlnFullFolderPath => new FileInfo(SlnFullFilePath).Directory.FullName;
+        public string SlnFullFilePath { get; }
+        public string SlnFullFolderPath { get; }
 
         public Slnf(
-            string slnfFileFullFolderPath,
             string slnfFullFilePath
         )
         {
-            _slnfFileFullFolderPath = slnfFileFullFolderPath;
-            _slnfFullFilePath = slnfFullFilePath;
+            _slnfFullFilePath = Path.GetFullPath(slnfFullFilePath);
 
-            JsonBody = SlnfJson.Deserialize(slnfFullFilePath);
+            JsonBody = SlnfJson.Deserialize(_slnfFullFilePath);
 
-            if (JsonBody is null)
-            {
-                throw new InvalidOperationException($"{slnfFullFilePath} does not found.");
-            }
+            var slnfFullFolderPath = Path.GetDirectoryName(_slnfFullFilePath)!;
+            SlnFullFilePath = Path.GetFullPath(Path.Combine(slnfFullFolderPath, JsonBody.Solution.Path));
+            SlnFullFolderPath = Path.GetDirectoryName(SlnFullFilePath)!;
         }
 
         public string CleanupExceptRoots(IReadOnlyList<string> wildcardRoots)
         {
-            var filteredRoots = new List<string>();
+            var filteredRoots = EnumerateProjectFullPaths()
+                .Where(projectFullPath => wildcardRoots.Any(projectFullPath.MatchesWildcard))
+                .Distinct(PathHelper.PathComparer)
+                .ToList();
 
-            foreach (var projectFullPath in EnumerateProjectFullPaths())
+            if (filteredRoots.Count == 0)
             {
-                foreach (var wildcardRoot in wildcardRoots)
-                {
-                    if (Regex.IsMatch(projectFullPath, wildcardRoot.WildCardToRegular()))
-                    {
-                        filteredRoots.Add(projectFullPath);
-                    }
-                }
+                //removing everything is never what user wants, so leave this slnf as is
+                return $"   No roots found in {_slnfFullFilePath.Pastel(ColorTable.SolutionProjectColor)}, its projects are kept as is."
+                    .Pastel(ColorTable.NoReferenceColor);
             }
 
             JsonBody.Solution.Projects = filteredRoots
-                    .Select(r => r.MakeRelativeAgainst(SlnFullFilePath))
+                    .Select(r => Path.GetRelativePath(SlnFullFolderPath, r))
                     .ToArray()
                 ;
 
@@ -72,7 +66,8 @@ namespace SlnfUpdater.FileStructure
         {
             foreach (var projectFileRelativePath in JsonBody.Solution.Projects)
             {
-                var projectFileFullPath = Path.Combine(SlnFullFolderPath, projectFileRelativePath);
+                //GetFullPath is required to normalize paths like ..\Project\Project.csproj
+                var projectFileFullPath = Path.GetFullPath(Path.Combine(SlnFullFolderPath, projectFileRelativePath));
                 yield return projectFileFullPath;
             }
         }
@@ -81,7 +76,6 @@ namespace SlnfUpdater.FileStructure
         {
             var context = new SearchReferenceContext(
                 SlnFullFilePath,
-                _slnfFullFilePath,
                 EnumerateProjectFullPaths()
                 );
 

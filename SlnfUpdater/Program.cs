@@ -1,47 +1,54 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Microsoft.Build.Locator;
 using Pastel;
+using SlnfUpdater.Helper;
 using SlnfUpdater.Processor;
 
 namespace SlnfUpdater
 {
     file static class Program
     {
-        private const string RebuildFromRootsKey = "-rebuild-from-roots";
-        private const string AdditionalRootsKey = "-additional-roots:";
+        private const int SuccessExitCode = 0;
+        private const int FailureExitCode = 1;
 
-        static void Main(string[]? args)
+        static int Main(string[] args)
         {
-            if (args == null || args.Length < 2)
+            try
             {
-                Console.WriteLine("You need to provide at least 2 arguments: path to the root directory and slnf file mask!");
-                return;
+                return Run(args);
+            }
+            catch (Exception excp)
+            {
+                Console.Error.WriteLine(excp.BuildMessageChain().Pastel(ColorTable.ErrorColor));
+                return FailureExitCode;
+            }
+        }
+
+        private static int Run(string[] args)
+        {
+            if (!CommandLineOptions.TryParse(args, out var options, out var error))
+            {
+                Console.Error.WriteLine(error);
+                Console.Error.WriteLine(CommandLineOptions.Usage);
+                return FailureExitCode;
             }
 
             var before = DateTime.Now;
 
-            var roots = ScanForRebuildRoots(args);
-
-            try
+            if (!MsBuildRegistration.TryRegister(out var msbuildError))
             {
-                MSBuildLocator.RegisterDefaults();
-            }
-            catch
-            {
-                // failed to register default, registering in dirty way
-                MSBuildLocator.RegisterMSBuildPath(Directory.GetCurrentDirectory());
+                Console.Error.WriteLine(msbuildError);
+                return FailureExitCode;
             }
 
-            var slnfFolderPath = Path.GetFullPath(args[0]);
-            var slnfFileMask = args[1];
+            var slnfFolderPath = Path.GetFullPath(options.SlnfFolderPath);
+            var slnfFileMask = options.SlnfFileMask;
 
             if (!Directory.Exists(slnfFolderPath))
             {
-                Console.WriteLine($"Folder {slnfFolderPath} does not exist.");
-                return;
+                Console.Error.WriteLine($"Folder {slnfFolderPath} does not exist.");
+                return FailureExitCode;
             }
 
             Console.WriteLine($"Found folder {slnfFolderPath}");
@@ -51,8 +58,8 @@ namespace SlnfUpdater
                 .ToList();
             if (slnfFiles.Count == 0)
             {
-                Console.WriteLine($"Folder {slnfFolderPath} does not contains a slnf files.");
-                return;
+                Console.Error.WriteLine($"Folder {slnfFolderPath} does not contains a slnf files.");
+                return FailureExitCode;
             }
 
             Console.WriteLine($"Found {slnfFiles.Count} slnf files:");
@@ -65,45 +72,21 @@ namespace SlnfUpdater
             var processor = new SlnfFilesProcessor(
                 slnfFolderPath,
                 slnfFiles,
-                roots
+                options.FromRootsMode
                 );
 
-            processor.Process();
+            var failedCount = processor.Process();
 
             var after = DateTime.Now;
             Console.WriteLine($"Finished (taken {(after - before).ToString().Pastel(ColorTable.TimeColor)}).");
-        }
 
-        private static BuildFromRootsMode ScanForRebuildRoots(
-            string[]? args
-            )
-        {
-            if (args is null || args.Length == 0)
+            if (failedCount > 0)
             {
-                return BuildFromRootsMode.Disabled;
+                Console.Error.WriteLine($"{failedCount} of {slnfFiles.Count} slnf files failed.".Pastel(ColorTable.ErrorColor));
+                return FailureExitCode;
             }
 
-            var rfrArg = args.FirstOrDefault(a => a.StartsWith(RebuildFromRootsKey));
-            if (rfrArg is null)
-            {
-                return BuildFromRootsMode.Disabled;
-            }
-
-            var arArgs = args.Where(a => a.StartsWith(AdditionalRootsKey)).ToList();
-            if (arArgs.Count <= 0)
-            {
-                return BuildFromRootsMode.Enabled;
-            }
-
-            var roots = new List<string>();
-            foreach (var arArg in arArgs)
-            {
-                var tail = arArg[AdditionalRootsKey.Length..];
-                var tails = tail.Split(";");
-                roots.AddRange(tails);
-            }
-
-            return BuildFromRootsMode.WithAdditionalRoots(roots);
+            return SuccessExitCode;
         }
     }
 }

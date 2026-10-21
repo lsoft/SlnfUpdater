@@ -1,6 +1,5 @@
 ﻿using System;
 using System.IO;
-using System.Runtime.InteropServices;
 using Newtonsoft.Json;
 
 namespace SlnfUpdater.FileStructure.Json;
@@ -8,7 +7,7 @@ namespace SlnfUpdater.FileStructure.Json;
 public sealed class SlnfJson
 {
     [JsonProperty("solution")]
-    public SlnfSolutionJson Solution { get; set; }
+    public SlnfSolutionJson Solution { get; set; } = new();
 
     [JsonConstructor]
     public SlnfJson() { }
@@ -18,29 +17,27 @@ public sealed class SlnfJson
     )
     {
         var slnf = JsonConvert.DeserializeObject<SlnfJson>(File.ReadAllText(slnfFullFilePath));
-        if (slnf is null)
+        if (slnf?.Solution is null || string.IsNullOrWhiteSpace(slnf.Solution.Path))
         {
-            throw new InvalidOperationException($"{slnfFullFilePath} does not found.");
+            throw new InvalidOperationException($"{slnfFullFilePath} is not a valid slnf file: solution path is missing.");
         }
 
-        slnf.UpdateSlashesInPaths();
+        slnf.Solution.Projects ??= [];
+        slnf.Solution.ChangeSlashesToOsStyle();
 
         return slnf;
-    }
-
-    internal void UpdateSlashesInPaths()
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            Solution.ChangeSlashesToLinuxStyle();
-        }
     }
 
     public void SerializeToFile(
         string slnfFullFilePath
     )
     {
-        var body = JsonConvert.SerializeObject(this, Formatting.Indented);
+        var slnf = new SlnfJson
+        {
+            Solution = Solution.CloneWithSlnfStyleSlashes()
+        };
+
+        var body = JsonConvert.SerializeObject(slnf, Formatting.Indented);
         File.WriteAllText(slnfFullFilePath, body);
     }
 }

@@ -9,7 +9,7 @@ using System.Text;
 
 namespace SlnfUpdater
 {
-    public readonly struct Project2Paths : IEquatable<Project2Paths>
+    public readonly struct Project2Paths
     {
         public readonly string FullPath;
         public readonly string RelativeSlnPath;
@@ -23,44 +23,43 @@ namespace SlnfUpdater
             RelativeSlnPath = relativeSlnPath;
         }
 
-        public override bool Equals(object? obj)
-        {
-            return obj is Project2Paths paths && Equals(paths);
-        }
-
-        public bool Equals(Project2Paths other)
-        {
-            return FullPath == other.FullPath &&
-                   RelativeSlnPath == other.RelativeSlnPath;
-        }
-
-        public override int GetHashCode()
-        {
-            return HashCode.Combine(FullPath, RelativeSlnPath);
-        }
-
-        public static bool operator ==(Project2Paths left, Project2Paths right)
-        {
-            return left.Equals(right);
-        }
-
-        public static bool operator !=(Project2Paths left, Project2Paths right)
-        {
-            return !(left == right);
-        }
-
         public static Project2Paths Create(
             string fullPath,
-            string slnFullPath
+            string slnFullFolderPath
             )
         {
-            return new Project2Paths(fullPath, fullPath.MakeRelativeAgainst(slnFullPath));
+            var normalizedFullPath = Path.GetFullPath(fullPath);
+            return new Project2Paths(normalizedFullPath, Path.GetRelativePath(slnFullFolderPath, normalizedFullPath));
+        }
+    }
+
+    /// <summary>
+    /// Project identity is its full path only; relative path is derived from it.
+    /// </summary>
+    public sealed class Project2PathsComparer : IEqualityComparer<Project2Paths>
+    {
+        private readonly StringComparer _pathComparer;
+
+        public Project2PathsComparer(StringComparer pathComparer)
+        {
+            _pathComparer = pathComparer ?? throw new ArgumentNullException(nameof(pathComparer));
         }
 
+        public bool Equals(Project2Paths x, Project2Paths y)
+        {
+            return _pathComparer.Equals(x.FullPath, y.FullPath);
+        }
+
+        public int GetHashCode(Project2Paths obj)
+        {
+            return _pathComparer.GetHashCode(obj.FullPath);
+        }
     }
 
     public sealed class SearchReferenceContext
     {
+        private readonly Project2PathsComparer _comparer;
+
         private readonly HashSet<Project2Paths> _existReferences;
 
         private readonly HashSet<Project2Paths> _processedReferences;
@@ -72,15 +71,8 @@ namespace SlnfUpdater
         {
             get;
         }
-        public string SlnfFilePath
-        {
-            get;
-        }
-        public string SlnfFileName
-        {
-            get;
-        }
-        public string SlnfFolderPath
+
+        public string SlnFullFolderPath
         {
             get;
         }
@@ -89,20 +81,25 @@ namespace SlnfUpdater
 
         public SearchReferenceContext(
             string slnFullPath,
-            string slnfFilePath,
             IEnumerable<string> existReferences
+            ) : this(slnFullPath, existReferences, PathHelper.PathComparer)
+        {
+        }
+
+        internal SearchReferenceContext(
+            string slnFullPath,
+            IEnumerable<string> existReferences,
+            StringComparer pathComparer
             )
         {
             SlnFullPath = slnFullPath;
-            SlnfFilePath = slnfFilePath;
-            var slnfFileInfo = new FileInfo(slnfFilePath);
-            SlnfFileName = slnfFileInfo.Name;
-            SlnfFolderPath = slnfFileInfo.Directory.FullName;
-            
-            _existReferences = existReferences.Select(p => Create2PathsFrom(p)).ToHashSet();
-            _processedReferences = new HashSet<Project2Paths>();
-            _addedReferences = new HashSet<Project2Paths>();
-            _deletedReferences = new HashSet<Project2Paths>();
+            SlnFullFolderPath = Path.GetDirectoryName(Path.GetFullPath(slnFullPath))!;
+
+            _comparer = new Project2PathsComparer(pathComparer);
+            _existReferences = existReferences.Select(Create2PathsFrom).ToHashSet(_comparer);
+            _processedReferences = new HashSet<Project2Paths>(_comparer);
+            _addedReferences = new HashSet<Project2Paths>(_comparer);
+            _deletedReferences = new HashSet<Project2Paths>(_comparer);
         }
 
         public bool IsProcessed(string checkedFullFilePath)
@@ -111,30 +108,19 @@ namespace SlnfUpdater
             //because any existing reference may not include all its children in slnf,
             //but we NEED to have all its children in slnf!
 
-            var twoPaths = Create2PathsFrom(checkedFullFilePath);
+            //added and deleted references are always marked as processed
+            return _processedReferences.Contains(Create2PathsFrom(checkedFullFilePath));
+        }
 
-            if (_processedReferences.Contains(twoPaths))
-            {
-                return true;
-            }
-
-            if (_addedReferences.Contains(twoPaths))
-            {
-                return true;
-            }
-
-            if (_deletedReferences.Contains(twoPaths))
-            {
-                return true;
-            }
-
-            return false;
+        public void MarkProcessed(string processedFullFilePath)
+        {
+            _processedReferences.Add(Create2PathsFrom(processedFullFilePath));
         }
 
         public void DeleteReference(string deletedReferenceFullPath)
         {
             var twoPaths = Create2PathsFrom(deletedReferenceFullPath);
-            
+
             _processedReferences.Add(twoPaths);
 
             if (!_existReferences.Contains(twoPaths))
@@ -162,9 +148,11 @@ namespace SlnfUpdater
 
         public void ApplyChangesTo(Slnf structured)
         {
+            //existing references go first, so their spelling wins
             structured.JsonBody.Solution.Projects =
-                _addedReferences
-                    .Union(_existReferences.Except(_deletedReferences))
+                _existReferences
+                    .Except(_deletedReferences, _comparer)
+                    .Union(_addedReferences, _comparer)
                     .Select(twoPaths => twoPaths.RelativeSlnPath)
                     .OrderBy(a => a, StringComparer.Ordinal)
                     .ToArray()
@@ -212,7 +200,7 @@ namespace SlnfUpdater
             string fileFullPath
             )
         {
-            return Project2Paths.Create(fileFullPath, SlnFullPath);
+            return Project2Paths.Create(fileFullPath, SlnFullFolderPath);
         }
     }
 }

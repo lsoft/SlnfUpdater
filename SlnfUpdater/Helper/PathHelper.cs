@@ -5,31 +5,30 @@ namespace SlnfUpdater.Helper
 {
     public static class PathHelper
     {
-        public static string MakeRelativeAgainst(
-            this string filePath,
-            string referencePath
+        /// <summary>
+        /// Comparer for full file paths: Windows file system is case-insensitive.
+        /// </summary>
+        public static readonly StringComparer PathComparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+        /// <summary>
+        /// slnf files written by Visual Studio always use backslashes.
+        /// </summary>
+        public static string ToSlnfSeparators(
+            this string path
             )
         {
-            var fileUri = new Uri(filePath);
-            var referenceUri = new Uri(referencePath);
-            return Uri.UnescapeDataString(referenceUri.MakeRelativeUri(fileUri).ToString()).Replace('/', Path.DirectorySeparatorChar);
+            return path.Replace('/', '\\');
         }
 
-        public static string GetFullPath(
-            string rootPath,
-            string somePath
+        public static string ToOsSeparators(
+            this string path
             )
         {
-            var rooted = Path.IsPathRooted(somePath);
-
-            var result = rooted
-                ? somePath
-                : Path.Combine(rootPath, somePath);
-
-            //на случай путей типа ../../somefile.cs
-            result = Path.GetFullPath(result);
-
-            return result;
+            return path
+                .Replace('\\', Path.DirectorySeparatorChar)
+                .Replace('/', Path.DirectorySeparatorChar);
         }
     }
 }

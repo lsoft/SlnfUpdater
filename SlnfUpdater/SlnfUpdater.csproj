@@ -4,16 +4,23 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <DisableMSBuildAssemblyCopyCheck>true</DisableMSBuildAssemblyCopyCheck>
+    <!-- MSBuild is loaded from the newest installed .NET SDK, so the app must be able to run on its runtime -->
+    <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Build" Version="17.12.6" />
-    <PackageReference Include="Microsoft.Build.Locator" Version="1.7.8" />
+    <InternalsVisibleTo Include="SlnfUpdater.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MSBuild assemblies must not be copied to the output: MSBuildLocator loads them from the .NET SDK -->
+    <PackageReference Include="Microsoft.Build" Version="17.12.50" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.12.50" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NET.StringTools" Version="17.12.50" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Locator" Version="1.11.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Pastel" Version="6.0.1" />
     <PackageReference Include="System.Formats.Asn1" Version="9.0.1" />
-    <PackageReference Include="Microsoft.Build.Runtime" Version="17.12.6" />
   </ItemGroup>
 
 </Project>
